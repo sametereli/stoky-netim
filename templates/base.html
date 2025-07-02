@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Stok Takip Sistemi{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"> {# Eğer bir CSS dosyanız varsa #}
+    {# Favicon eklemek için (isteğe bağlı) #}
+    <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
+</head>
+<body>
+    <header>
+        <div class="logo-container">
+            <a href="{{ url_for('hello_world') }}">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Uygulama Logosu" class="app-logo">
+            </a>
+            <h1>Stok Yönetimi</h1>
+        </div>
+        <nav>
+            <ul>
+                <li><a href="{{ url_for('hello_world') }}">Ana Sayfa</a></li>
+                <li><a href="{{ url_for('yeni_urun') }}">Yeni Ürün Ekle</a></li>
+                <li><a href="{{ url_for('satis_yap') }}">Satış Yap / Teklif Oluştur</a></li>
+                {# Kategori filtreleme veya başka menü öğeleri eklenebilir #}
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>&copy; {{ moment().format('YYYY') }} Stok Takip Sistemi</p>
+    </footer>
+
+    {# Eğer JavaScript dosyalarınız varsa, buraya ekleyebilirsiniz #}
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {# Moment.js için (eğer kullanıyorsanız) #}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+</body>
+</html>

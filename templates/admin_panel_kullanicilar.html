@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kullanıcı Yönetimi - Admin Paneli</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
+    {# DataTables CSS #}
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #e9ecef;
+            color: #343a40;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            margin-top: 30px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            color: #0056b3;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .table th {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        .table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .navbar-brand {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 5px 15px;
+        }
+        .navbar-brand .logo-img {
+            height: 60px;
+            width: auto;
+            margin-bottom: 5px;
+        }
+        .navbar-brand .app-title-text {
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: white;
+            white-space: nowrap;
+        }
+        @media (max-width: 767.98px) {
+            .navbar-brand .logo-img { height: 45px; }
+            .navbar-brand .app-title-text { font-size: 0.75rem; }
+        }
+        footer {
+            margin-top: 40px;
+            padding: 15px;
+            background-color: #343a40;
+            color: white;
+            text-align: center;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    {# Navbar - Genel Navbar yapısı #}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('anasayfa') }}">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img">
+                <span class="app-title-text">Stok Yönetim Sistemi</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('anasayfa') }}">Ana Sayfa</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('urun_listesi') }}">Ürün Listesi</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('satis_yap') }}">Satış Yap</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('musteri_gecmisi') }}">Müşteri Geçmişi</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('ayarlar') }}">Ayarlar</a>
+                    </li>
+                    {# Admin rolündeyse Admin Paneli linkini göster #}
+                    {% if session.get('rol') == 'admin' %}
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="{{ url_for('admin_panel_kullanicilar') }}">Admin Paneli</a>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('cikis') }}">Çıkış Yap ({{ session.get('kullanici_adi') }})</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>Kullanıcı Yönetimi</h1>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <div class="d-flex justify-content-end mb-3">
+            <a href="{{ url_for('kayit') }}" class="btn btn-success">Yeni Kullanıcı Oluştur</a>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover" id="kullaniciTablosu">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Kullanıcı Adı</th>
+                        <th>Rol</th>
+                        <th>İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in kullanicilar %}
+                    <tr>
+                        <td>{{ user['id'] }}</td>
+                        <td>{{ user['kullanici_adi'] }}</td>
+                        <td>{{ user['rol'] }}</td>
+                        <td class="action-buttons">
+                            <a href="{{ url_for('admin_panel_kullanici_duzenle', id=user['id']) }}" class="btn btn-sm btn-primary">Düzenle</a>
+                            <form action="{{ url_for('admin_panel_kullanici_sil', id=user['id']) }}" method="POST" style="display:inline;" onsubmit="return confirm('Bu kullanıcıyı silmek istediğinizden emin misiniz?');">
+                                <button type="submit" class="btn btn-sm btn-danger" {% if user['id'] == session.get('kullanici_id') %}disabled{% endif %}>Sil</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">Hiç kullanıcı bulunmuyor.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <a href="{{ url_for('anasayfa') }}" class="btn btn-secondary mt-3">Ana Sayfaya Dön</a>
+    </div>
+
+    <footer>
+        <p>&copy; {{ now().year }} Stok Yönetim Sistemi</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {# jQuery (DataTables için gerekli) #}
+    <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    {# DataTables JS #}
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+    {# DataTables Bootstrap 5 Entegrasyonu JS #}
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('#kullaniciTablosu').DataTable({
+                "language": {
+                    "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json" 
+                },
+                "columnDefs": [
+                    { "orderable": false, "targets": 3 } // "İşlemler" sütununu sıralanamaz yap
+                ]
+            });
+        });
+    </script>
+</body>
+</html>
