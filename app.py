@@ -13,7 +13,8 @@ app = Flask(__name__,
 # Oturum güvenliği için gizli bir anahtar. ÇOK ÖNEMLİ!
 # Üretimde bu anahtarı güvenli bir yerden alın (örn. çevre değişkeni)
 # Bu değeri rastgele ve uzun bir string ile DEĞİŞTİRMEYİ UNUTMAYIN!
-app.config['SECRET_KEY'] = 'buraya_kendi_cok_gizli_ve_rastgele_anahtarinizi_yazin_lütfen_degistirin_burayi_secure'
+app.config['SECRET_KEY'] = 'u83HsdK29sdlQWmA9283nslfLZMXpq91Lkd73KDma91nXzplKQ73hszPqpWmZlXnA73mqpw8293msnQPz
+'
 
 # Jinja2 şablonlarında Python'ın datetime.datetime.now() fonksiyonunu kullanabilmek için
 app.jinja_env.globals.update(now=datetime.datetime.now)
@@ -32,8 +33,16 @@ app.jinja_env.filters['format_tl'] = format_tl
 
 # Veritabanı bağlantısı için yardımcı fonksiyon
 def get_db_connection():
-    conn = sqlite3.connect('stok.db')
-    conn.row_factory = sqlite3.Row
+    # SQLite yerine PostgreSQL için bağlantı bilgilerinizi buraya güncellediniz farz ediyorum.
+    # Eğer hala SQLite kullanıyorsanız ve bu kod Render'da kalıcı değilse sorun devam edebilir.
+    # Örn: PostgreSQL için
+    import psycopg2
+    import os
+    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://user:password@host:port/dbname')
+    conn = psycopg2.connect(DATABASE_URL)
+    # Eğer psycopg2.extras.RealDictCursor kullanıyorsanız, cursor'ı ayrı almanız gerekebilir:
+    # from psycopg2.extras import RealDictCursor
+    # conn.cursor(cursor_factory=RealDictCursor)
     return conn
 
 # Veritabanını başlatma fonksiyonu
@@ -133,10 +142,11 @@ def init_db():
     ''')
 
 
-    # Varsayılan ayarları ekle
+    # Varsayılan ayarları ekle (Bu satırı tutabilirsiniz, çünkü ayarlarınız için bir başlangıç kaydı sağlar)
     conn.execute("INSERT OR IGNORE INTO ayarlar (id, sirket_adi, adres, telefon, eposta, düsuk_stok_esigi) VALUES (1, 'Şirket Adınız', 'Şirket Adresi', '0 (XXX) XXX XX XX', 'info@sirketiniz.com', 10);")
 
     # Örnek yönetici kullanıcısı ekle (sadece bir kez, eğer yoksa)
+    # Bu kısmı bırakmak isteyebilirsiniz, çünkü uygulamanızın çalışması için en az bir kullanıcının olması iyi olur.
     if not conn.execute("SELECT id FROM kullanicilar WHERE kullanici_adi = 'admin'").fetchone():
         hashed_password = generate_password_hash('adminpass', method='pbkdf2:sha256')
         conn.execute("INSERT INTO kullanicilar (kullanici_adi, parola_hash, rol) VALUES (?, ?, ?)",
@@ -151,16 +161,18 @@ def init_db():
         print("Varsayılan 'personel' kullanıcısı eklendi (Parola: personelpass)")
 
 
-    # Örnek veriler (urunler için)
-    conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (1, '3*2,5 nym kablo', 50, 15.00, 20.00, 'metre', 'Kablolar');")
-    conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (2, 'Sıva altı priz', 75, 20.00, 28.00, 'adet', 'Prizler');")
-    conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (3, 'Monitör', 30, 1200.00, 1500.00, 'adet', 'Elektronik');")
-    conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (4, 'Web Kamerası', 20, 300.00, 400.00, 'adet', 'Elektronik');")
-    conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (5, '16 A sigorta', 36, 12.50, 17.00, 'adet', 'Sigortalar');")
+    # BURADAKİ TÜM ÖRNEK ÜRÜN VE MÜŞTERİ VERİ EKLEME SATIRLARI YORUM SATIRI YAPILDI VEYA SİLİNDİ
+    # Bunlar artık uygulamanızın her başladığında veri tabanına yeniden eklenmeyecek.
+    # Ürünlerinizi ve müşterilerinizi web arayüzünden eklemelisiniz.
+    # conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (1, '3*2,5 nym kablo', 50, 15.00, 20.00, 'metre', 'Kablolar');")
+    # conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (2, 'Sıva altı priz', 75, 20.00, 28.00, 'adet', 'Prizler');")
+    # conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (3, 'Monitör', 30, 1200.00, 1500.00, 'adet', 'Elektronik');")
+    # conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (4, 'Web Kamerası', 20, 300.00, 400.00, 'adet', 'Elektronik');")
+    # conn.execute("INSERT OR IGNORE INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (5, '16 A sigorta', 36, 12.50, 17.00, 'adet', 'Sigortalar');")
 
-    # Örnek müşteri verisi (ekleyen_kullanici_id eklendi)
-    conn.execute("INSERT OR IGNORE INTO musteriler (id, ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (1, 'Ali Yılmaz', '5551234567', 'Örnek Mah. No:1 İstanbul', 'ali@example.com', 1);") # Admin ekledi varsayalım
-    conn.execute("INSERT OR IGNORE INTO musteriler (id, ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (2, 'Ayşe Demir', '5559876543', 'Deneme Sok. No:5 Ankara', 'ayse@example.com', 2);") # Personel ekledi varsayalım
+    # Örnek müşteri verisi yorum satırı yapıldı
+    # conn.execute("INSERT OR IGNORE INTO musteriler (id, ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (1, 'Ali Yılmaz', '5551234567', 'Örnek Mah. No:1 İstanbul', 'ali@example.com', 1);")
+    # conn.execute("INSERT OR IGNORE INTO musteriler (id, ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (2, 'Ayşe Demir', '5559876543', 'Deneme Sok. No:5 Ankara', 'ayse@example.com', 2);")
 
     conn.commit()
     conn.close()
@@ -910,7 +922,7 @@ def musteri_detay(musteri_id):
         satislar_data.append(dict(row))
 
     gruplanmis_satislar = {}
-    for satis_item in satislar_data: # Değişiklik burada: satis_item olarak isimlendirdik
+    for satis_item in satislar_data:
         satis_id = satis_item['satis_id']
         if satis_id not in gruplanmis_satislar:
             gruplanmis_satislar[satis_id] = {
