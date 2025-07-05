@@ -17,7 +17,7 @@ app = Flask(__name__,
 # Üretimde bu anahtarı güvenli bir yerden alın (örn. çevre değişkeni)
 # Bu değeri rastgele ve uzun bir string ile DEĞİŞTİRMEYİ UNUTMAYIN!
 # Burayı daha güvenli bir anahtarla değiştirmeyi unutmayın!
-app.config['SECRET_KEY'] = 'os.urandom(24).hex()'
+app.config['SECRET_KEY'] = 'GERCEK_VE_GUVENLI_BIR_ANAHTAR_BURAYA_GELMELI_UZUN_VE_RASTGELE_LUTFEN_DEGISTIRIN'
 
 # Jinja2 şablonlarında Python'ın datetime.datetime.now() fonksiyonunu kullanabilmek için
 app.jinja_env.globals.update(now=datetime.datetime.now)
