@@ -16,7 +16,7 @@
             background-color: #e9ecef;
             color: #343a40;
         }
-        /* Navbar markası için genel stil (mobil uyumlu) */
+        /* Navbar markası için genel stil */
         .navbar-brand { 
             display: flex;
             flex-direction: column;
@@ -216,7 +216,8 @@
         document.addEventListener('DOMContentLoaded', function() {
             const itemsContainer = document.getElementById('istem-items-container');
             const addItemBtn = document.getElementById('addItemBtn');
-            const urunler = {{ urunler | tojson }}; // Flask'tan gelen ürünler listesi
+            // urunler değişkeni Flask tarafından dict listesi olarak gönderildiği varsayılıyor
+            const urunler = {{ urunler | tojson }}; 
 
             let itemCounter = 0; // Her satır için benzersiz bir sayaç
 
@@ -236,23 +237,19 @@
                 itemsContainer.appendChild(newItemRow);
                 itemCounter++;
 
-                // Kaldırma butonuna olay dinleyici ekle
                 newItemRow.querySelector('.remove-item-btn').addEventListener('click', function() {
                     newItemRow.remove();
                 });
             }
 
-            // İlk satırı otomatik ekle
             addItemRow();
 
-            // "Yeni Ürün Ekle" butonuna tıklama dinleyicisi
             addItemBtn.addEventListener('click', addItemRow);
 
-            // Form gönderimini kontrol et (en az bir ürün olmalı)
             document.getElementById('malzemeIstemiForm').addEventListener('submit', function(event) {
                 if (itemsContainer.children.length === 0) {
                     alert('Lütfen en az bir ürün talep edin!');
-                    event.preventDefault(); // Formu göndermeyi engelle
+                    event.preventDefault();
                 }
             });
         });
