@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash
-# sqlite3 yerine PostgreSQL için psycopg2 ve os modülünü kullanacağız
+# SQLite yerine PostgreSQL için psycopg2 ve os modülünü kullanacağız
 import psycopg2
-import psycopg2.extras # Sözlük olarak sonuç almak için
+import psycopg2.extras # Sözlük olarak sonuç almak için RealDictCursor
 import datetime
 import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+import traceback # Hata ayıklama için eklendi
 
 # Flask uygulamasını oluştur
 app = Flask(__name__,
@@ -15,8 +16,8 @@ app = Flask(__name__,
 # Oturum güvenliği için gizli bir anahtar. ÇOK ÖNEMLİ!
 # Üretimde bu anahtarı güvenli bir yerden alın (örn. çevre değişkeni)
 # Bu değeri rastgele ve uzun bir string ile DEĞİŞTİRMEYİ UNUTMAYIN!
-# Önceki hatanın çözüldüğünü varsayarak string formatını çift tırnakla güncellendi.
-app.config['SECRET_KEY'] = "LÜTFEN_BURAYI_DEGISTIRIN_RASTGELE_BIR_DEGER_ATAYIN"
+# Burayı daha güvenli bir anahtarla değiştirmeyi unutmayın!
+app.config['SECRET_KEY'] = 'os.urandom(24).hex()'
 
 # Jinja2 şablonlarında Python'ın datetime.datetime.now() fonksiyonunu kullanabilmek için
 app.jinja_env.globals.update(now=datetime.datetime.now)
@@ -34,36 +35,40 @@ def format_tl(value):
 
 app.jinja_env.filters['format_tl'] = format_tl
 
-# Veritabanı bağlantısı için yardımcı fonksiyon (PostgreSQL için güncellendi)
-def get_db_connection():
+# Veritabanı bağlantısı ve cursor için yardımcı fonksiyon (PostgreSQL için güncellendi)
+def get_db_cursor(dictionary=True):
+    conn = None
+    cur = None
     try:
         # DATABASE_URL Render ortam değişkenlerinden alınır
         DATABASE_URL = os.environ.get('DATABASE_URL')
         if not DATABASE_URL:
-            # Yerel geliştirme için veya DATABASE_URL ayarlanmamışsa yedek
-            # Kendi yerel PostgreSQL bağlantı bilginizi buraya yazabilirsiniz.
-            # Örneğin: DATABASE_URL = "postgresql://kullanici:sifre@localhost:5432/veritabani_adi"
-            raise ValueError("DATABASE_URL ortam değişkeni ayarlanmadı!")
+            # Yerel geliştirme için veya DATABASE_URL ayarlanmamışsa ValueError fırlat
+            # Eğer yerelde test ediyorsanız burayı yerel PostgreSQL bağlantı dizenizle doldurun
+            raise ValueError("DATABASE_URL ortam değişkeni ayarlanmadı! Lütfen Render'da veya yerel .env dosyanızda ayarlayın.")
 
         conn = psycopg2.connect(DATABASE_URL)
-        # Sorgu sonuçlarını sözlük olarak almak için cursor_factory kullanılır
-        return conn
+        if dictionary:
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # Sonuçları sözlük olarak döndürür
+        else:
+            cur = conn.cursor() # Varsayılan tuple olarak döndürür
+        return conn, cur
     except Exception as e:
-        print(f"Veritabanı bağlantı hatası: {e}")
-        # Uygulamanın başlamaması durumunda detaylı hata logu için
-        import traceback
+        print(f"Veritabanı bağlantısı veya cursor oluşturma hatası: {e}")
         traceback.print_exc()
-        raise # Hatayı yukarı fırlat, uygulamanın başlamasını engelle
+        if conn: # Hata oluşursa bağlantıyı kapat
+            conn.close()
+        raise # Hatayı yeniden fırlat, uygulamanın başlamasını engelle
 
 
 # Veritabanını başlatma fonksiyonu (PostgreSQL ve örnek veri temizliği için güncellendi)
 def init_db():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor() # SQL komutlarını çalıştırmak için cursor kullan
+        conn, cur = get_db_cursor(dictionary=False) # Tablo oluşturma için DictCursor'a gerek yok
 
-        # urunler tablosu
+        # urunler tablosu (SERIAL PRIMARY KEY PostgreSQL'de otomatik artan ID için)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS urunler (
                 id SERIAL PRIMARY KEY,
@@ -155,7 +160,8 @@ def init_db():
             );
         ''')
 
-        # Varsayılan ayarları ekle (Bu satırı tutabilirsiniz, çünkü ayarlarınız için bir başlangıç kaydı sağlar)
+
+        # Varsayılan ayarları ekle (ON CONFLICT (id) DO NOTHING PostgreSQL'de INSERT OR IGNORE eşdeğeri)
         cur.execute("INSERT INTO ayarlar (id, sirket_adi, adres, telefon, eposta, düsuk_stok_esigi) VALUES (1, 'Şirket Adınız', 'Şirket Adresi', '0 (XXX) XXX XX XX', 'info@sirketiniz.com', 10) ON CONFLICT (id) DO NOTHING;")
 
         # Örnek yönetici kullanıcısı ekle (sadece bir kez, eğer yoksa)
@@ -175,7 +181,7 @@ def init_db():
             print("Varsayılan 'personel' kullanıcısı eklendi (Parola: personelpass)")
 
 
-        # BURADAKİ TÜM ÖRNEK ÜRÜN VE MÜŞTERİ VERİ EKLEME SATIRLARI YORUM SATIRI YAPILDI VEYA SİLİNDİ
+        # BURADAKİ TÜM ÖRNEK ÜRÜN VE MÜŞTERİ VERİ EKLEME SATIRLARI YORUM SATIRI YAPILDI
         # Bunlar artık uygulamanızın her başladığında veri tabanına yeniden eklenmeyecek.
         # Ürünlerinizi ve müşterilerinizi web arayüzünden eklemelisiniz.
         # cur.execute("INSERT INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (1, '3*2,5 nym kablo', 50, 15.00, 20.00, 'metre', 'Kablolar') ON CONFLICT (id) DO NOTHING;")
@@ -191,22 +197,22 @@ def init_db():
         conn.commit()
     except Exception as e:
         print(f"init_db sırasında hata oluştu: {e}")
-        import traceback
         traceback.print_exc()
         if conn:
             conn.rollback() # Hata durumunda rollback yap
         raise # Hatayı yeniden fırlat, uygulamanın başlamasını engelle
     finally:
-        if conn:
-            conn.close()
+        if cur: cur.close()
+        if conn: conn.close()
 
 # Uygulama başladığında veritabanını başlat
 with app.app_context():
     try:
         init_db()
     except Exception as e:
-        print(f"Uygulama başlangıcında veritabanı başlatma hatası: {e}")
-        # Bu hata uygulamanın başlatılmasını engelleyebilir, Render loglarında görünmeli.
+        # Uygulama başlangıcında DB hatası oluşursa buraya düşer
+        print(f"Uygulama başlatılırken kritik veritabanı hatası: {e}")
+        traceback.print_exc()
 
 
 # --- Yetkilendirme için Yardımcı Fonksiyonlar/Dekoratörler ---
@@ -228,14 +234,13 @@ def role_required(required_role):
                 return redirect(url_for('giris'))
 
             conn = None
+            cur = None
             try:
-                conn = get_db_connection()
-                # PostgreSQL'de fetchone() döndürdüğü sonuç bir liste veya tuple olabilir.
-                # Eğer RealDictCursor kullanıyorsanız zaten sözlük döner.
-                # Varsayılan cursor ile erişmek için indeks kullanırız.
-                # Buradaki select rol sorgusu için DictCursor kullanmadan da çalışır.
-                user_row = conn.execute('SELECT rol FROM kullanicilar WHERE id = %s', (session['kullanici_id'],)).fetchone()
-                user_role = user_row[0] if user_row else None # row[0] ile rol değerini al
+                conn, cur = get_db_cursor() # Default olarak dictionary=True döner
+                cur.execute('SELECT rol FROM kullanicilar WHERE id = %s', (session['kullanici_id'],))
+                user = cur.fetchone() # user RealDictRow objesi, sözlük gibi davranır
+
+                user_role = user['rol'] if user else None # Rol değerini güvenli bir şekilde al
 
                 if user_role and user_role == required_role:
                     return f(*args, **kwargs)
@@ -244,13 +249,12 @@ def role_required(required_role):
                     return redirect(url_for('anasayfa'))
             except Exception as e:
                 print(f"Yetkilendirme sırasında hata: {e}")
-                import traceback
                 traceback.print_exc()
                 flash('Yetkilendirme hatası oluştu.', 'danger')
                 return redirect(url_for('anasayfa'))
             finally:
-                if conn:
-                    conn.close()
+                if cur: cur.close()
+                if conn: conn.close()
         return decorated_function
     return decorator
 
@@ -258,13 +262,12 @@ def role_required(required_role):
 @app.route('/kayit', methods=('GET', 'POST'))
 def kayit():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        conn, cur = get_db_cursor()
         cur.execute('SELECT COUNT(*) FROM kullanicilar')
-        user_count = cur.fetchone()[0]
-        conn.close() # Bağlantıyı kapat
-
+        user_count = cur.fetchone()['count'] # RealDictCursor ile 'count' anahtarı
+        
         if user_count > 0 and (session.get('kullanici_id') is None or session.get('rol') != 'admin'):
             flash('Yeni kullanıcı oluşturmak için yönetici olmalısınız.', 'danger')
             return redirect(url_for('anasayfa'))
@@ -273,45 +276,44 @@ def kayit():
             kullanici_adi = request.form['kullanici_adi']
             parola = request.form['parola']
             parola_tekrar = request.form['parola_tekrar']
-
+            
             if not kullanici_adi or not parola:
                 flash('Kullanıcı adı ve parola boş bırakılamaz!', 'danger')
                 return redirect(url_for('kayit'))
-
+            
             if parola != parola_tekrar:
                 flash('Parolalar eşleşmiyor!', 'danger')
                 return redirect(url_for('kayit'))
-
-            conn = get_db_connection()
-            cur = conn.cursor()
+            
+            # Bağlantıyı yeniden aç, çünkü yukarıda kapatılmış olabilir
+            conn, cur = get_db_cursor() 
             cur.execute('SELECT id FROM kullanicilar WHERE kullanici_adi = %s', (kullanici_adi,))
             existing_user = cur.fetchone()
             if existing_user:
-                conn.close()
                 flash('Bu kullanıcı adı zaten mevcut!', 'danger')
                 return redirect(url_for('kayit'))
-
+            
             hashed_password = generate_password_hash(parola, method='pbkdf2:sha256')
-
+            
             if user_count == 0:
                 rol = 'admin'
                 flash('Sistemin ilk kullanıcısı (YÖNETİCİ) başarıyla oluşturuldu! Şimdi giriş yapabilirsiniz.', 'success')
             else:
-                rol = 'personel'
+                rol = 'personel' 
                 flash('Yeni personel hesabı başarıyla oluşturuldu!', 'success')
 
             cur.execute('INSERT INTO kullanicilar (kullanici_adi, parola_hash, rol) VALUES (%s, %s, %s)',
                          (kullanici_adi, hashed_password, rol))
             conn.commit()
-            conn.close()
             return redirect(url_for('giris'))
+            
     except Exception as e:
         print(f"Kayıt sırasında hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Kayıt sırasında bir hata oluştu.', 'danger')
         if conn: conn.rollback()
     finally:
+        if cur: cur.close()
         if conn: conn.close()
     return render_template('kayit.html')
 
@@ -322,13 +324,12 @@ def giris():
         return redirect(url_for('anasayfa'))
 
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        conn, cur = get_db_cursor()
         cur.execute('SELECT COUNT(*) FROM kullanicilar')
-        user_count = cur.fetchone()[0]
-        conn.close()
-
+        user_count = cur.fetchone()['count']
+        
         if user_count == 0:
             flash('Sistemde hiç kullanıcı yok. Lütfen ilk kullanıcıyı (yönetici) oluşturun.', 'info')
             return redirect(url_for('kayit'))
@@ -336,28 +337,28 @@ def giris():
         if request.method == 'POST':
             kullanici_adi = request.form['kullanici_adi']
             parola = request.form['parola']
-
-            conn = get_db_connection()
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor kullan
+            
+            # Bağlantıyı yeniden aç
+            conn, cur = get_db_cursor() 
             cur.execute('SELECT * FROM kullanicilar WHERE kullanici_adi = %s', (kullanici_adi,))
-            user = cur.fetchone()
-            conn.close()
-
+            user = cur.fetchone() # RealDictRow döner
+            
             if user and check_password_hash(user['parola_hash'], parola):
                 session['kullanici_id'] = user['id']
                 session['kullanici_adi'] = user['kullanici_adi']
-                session['rol'] = user['rol']
+                session['rol'] = user['rol'] # user['rol'] ile role erişim
                 flash(f'Hoş geldiniz, {user["kullanici_adi"]}!', 'success')
                 return redirect(url_for('anasayfa'))
             else:
                 flash('Geçersiz kullanıcı adı veya parola.', 'danger')
                 return redirect(url_for('giris'))
+                
     except Exception as e:
         print(f"Giriş sırasında hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Giriş sırasında bir hata oluştu.', 'danger')
     finally:
+        if cur: cur.close()
         if conn: conn.close()
     return render_template('giris.html')
 
@@ -375,9 +376,9 @@ def cikis():
 @role_required('admin')
 def admin_panel_kullanicilar():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor() # RealDictCursor
         cur.execute('SELECT id, kullanici_adi, rol FROM kullanicilar ORDER BY kullanici_adi')
         kullanicilar = cur.fetchall()
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
@@ -385,20 +386,20 @@ def admin_panel_kullanicilar():
         return render_template('admin_panel_kullanicilar.html', kullanicilar=kullanicilar, kategoriler=kategoriler)
     except Exception as e:
         print(f"Admin panel kullanıcılar yüklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Kullanıcı listesi yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/admin_panel/kullanici_duzenle/<int:id>', methods=('GET', 'POST'))
 @role_required('admin')
 def admin_panel_kullanici_duzenle(id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor() # RealDictCursor
         cur.execute('SELECT id, kullanici_adi, rol FROM kullanicilar WHERE id = %s', (id,))
         kullanici = cur.fetchone()
 
@@ -423,12 +424,12 @@ def admin_panel_kullanici_duzenle(id):
         return render_template('admin_panel_kullanici_duzenle.html', kullanici=kullanici, kategoriler=kategoriler)
     except Exception as e:
         print(f"Kullanıcı düzenleme hatası: {e}")
-        import traceback
         traceback.print_exc()
         flash('Kullanıcı düzenlenirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('admin_panel_kullanicilar'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 
@@ -436,18 +437,20 @@ def admin_panel_kullanici_duzenle(id):
 @role_required('admin')
 def admin_panel_kullanici_sil(id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        conn, cur = get_db_cursor()
 
         if id == session['kullanici_id']:
             flash('Kendi hesabınızı silemezsiniz!', 'danger')
             return redirect(url_for('admin_panel_kullanicilar'))
 
         cur.execute("SELECT COUNT(*) FROM kullanicilar WHERE rol = 'admin'")
-        admin_count = cur.fetchone()[0]
+        admin_count = cur.fetchone()['count'] # Sözlükten erişim
+
         cur.execute("SELECT rol FROM kullanicilar WHERE id = %s", (id,))
-        deleted_user_role = cur.fetchone()[0]
+        deleted_user = cur.fetchone()
+        deleted_user_role = deleted_user['rol'] if deleted_user else None # Sözlükten erişim
 
         if admin_count == 1 and deleted_user_role == 'admin':
             flash('Sistemde son kalan yöneticiyi silemezsiniz!', 'danger')
@@ -459,12 +462,12 @@ def admin_panel_kullanici_sil(id):
         return redirect(url_for('admin_panel_kullanicilar'))
     except Exception as e:
         print(f"Kullanıcı silme hatası: {e}")
-        import traceback
         traceback.print_exc()
         flash('Kullanıcı silinirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('admin_panel_kullanicilar'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 
@@ -474,9 +477,9 @@ def admin_panel_kullanici_sil(id):
 @role_required('personel') # Sadece personeller istem oluşturabilir (Adminler bu rotaya erişemez)
 def malzeme_istem_olustur():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT id, ad, stok, birim FROM urunler ORDER BY ad')
         urunler_for_template = cur.fetchall()
 
@@ -492,6 +495,8 @@ def malzeme_istem_olustur():
                 flash('Lütfen en az bir ürün talep edin ve adetleri boş bırakmayın!', 'danger')
                 return render_template('malzeme_istem_olustur.html', urunler=urunler_for_template, kategoriler=kategoriler)
 
+            # Bağlantıyı yeniden aç, çünkü yukarıda kapatılmış olabilir (Flask'ta request başına bağlantı daha iyi)
+            conn, cur = get_db_cursor()
             talep_tarihi = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             all_requests_valid = True
 
@@ -523,18 +528,18 @@ def malzeme_istem_olustur():
                 flash('Malzeme istem(ler)i başarıyla oluşturuldu ve beklemede!', 'success')
                 return redirect(url_for('malzeme_istem_listele'))
             else:
-                conn.rollback()
+                conn.rollback() # Bir hata varsa tüm işlemleri geri al
                 return render_template('malzeme_istem_olustur.html', urunler=urunler_for_template, kategoriler=kategoriler)
 
         return render_template('malzeme_istem_olustur.html', urunler=urunler_for_template, kategoriler=kategoriler)
     except Exception as e:
         print(f"Malzeme istemi oluşturulurken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Malzeme istemi oluşturulurken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
-        return redirect(url_for('anasayfa')) # Hata durumunda anasayfaya yönlendir
+        return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 
@@ -542,10 +547,11 @@ def malzeme_istem_olustur():
 @login_required
 def malzeme_istem_listele():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
 
+        # Yönetici tüm istemleri görür, personel sadece kendi istemlerini görür
         if session.get('rol') == 'admin':
             cur.execute('''
                 SELECT
@@ -581,11 +587,11 @@ def malzeme_istem_listele():
         return render_template('malzeme_istem_listele.html', istemler=istemler, kategoriler=kategoriler)
     except Exception as e:
         print(f"Malzeme istemleri listelenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Malzeme istemleri yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 
@@ -595,9 +601,9 @@ def malzeme_istem_onayla_reddet(istem_id):
     action = request.form.get('action')
 
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM malzeme_istemleri WHERE id = %s', (istem_id,))
         istem = cur.fetchone()
 
@@ -632,12 +638,12 @@ def malzeme_istem_onayla_reddet(istem_id):
         return redirect(url_for('malzeme_istem_listele'))
     except Exception as e:
         print(f"Malzeme istemi onay/reddet sırasında hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('İşlem sırasında bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('malzeme_istem_listele'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 
@@ -651,19 +657,19 @@ def test_resim():
 @login_required
 def anasayfa():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('anasayfa.html', kategoriler=kategoriler)
     except Exception as e:
         print(f"Anasayfa yüklenirken hata: {e}")
-        import traceback
-        traceback.exc_info() # Hata detaylarını logla
+        traceback.print_exc()
         flash('Anasayfa yüklenirken bir hata oluştu.', 'danger')
-        return "Anasayfa yüklenemedi", 500 # Uygulama çökmesini önlemek için
+        return "Anasayfa yüklenemedi", 500
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/urun_listesi')
@@ -671,9 +677,9 @@ def anasayfa():
 @role_required('admin')
 def urun_listesi():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
 
         cur.execute('SELECT düsuk_stok_esigi FROM ayarlar WHERE id = 1')
         ayarlar = cur.fetchone()
@@ -722,11 +728,11 @@ def urun_listesi():
                                düsuk_stok_esigi=düsuk_stok_esigi)
     except Exception as e:
         print(f"Ürün listesi yüklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Ürün listesi yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/yeni_urun', methods=('GET', 'POST'))
@@ -734,9 +740,9 @@ def urun_listesi():
 @role_required('admin')
 def yeni_urun():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
 
         if request.method == 'POST':
             urun_adi = request.form['ad']
@@ -776,12 +782,12 @@ def yeni_urun():
         return render_template('urun_ekle.html', kategoriler=kategoriler)
     except Exception as e:
         print(f"Yeni ürün eklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Yeni ürün eklenirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
-        return redirect(url_for('urun_listesi')) # Hata durumunda ürün listesine yönlendir
+        return redirect(url_for('urun_listesi'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/<int:id>/duzenle', methods=('GET', 'POST'))
@@ -789,9 +795,9 @@ def yeni_urun():
 @role_required('admin')
 def duzenle(id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM urunler WHERE id = %s', (id,))
         urun = cur.fetchone()
 
@@ -837,12 +843,12 @@ def duzenle(id):
         return render_template('urun_duzenle.html', urun=urun, kategoriler=kategoriler)
     except Exception as e:
         print(f"Ürün düzenlenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Ürün düzenlenirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('urun_listesi'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/<int:id>/sil', methods=('POST',))
@@ -850,31 +856,31 @@ def duzenle(id):
 @role_required('admin')
 def sil(id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        conn, cur = get_db_cursor()
         cur.execute('DELETE FROM urunler WHERE id = %s', (id,))
         conn.commit()
         flash('Ürün başarıyla silindi!', 'info')
         return redirect(url_for('urun_listesi'))
     except Exception as e:
         print(f"Ürün silinirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Ürün silinirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('urun_listesi'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/musteri_ekle', methods=('GET', 'POST'))
 @login_required
-@role_required('admin') # SADECE ADMINLER müşteri ekleyebilir
+@role_required('admin')
 def musteri_ekle():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
 
@@ -888,6 +894,8 @@ def musteri_ekle():
                 flash('Müşteri Adı Soyadı boş bırakılamaz!', 'danger')
                 return redirect(url_for('musteri_ekle'))
 
+            # Bağlantıyı yeniden aç
+            conn, cur = get_db_cursor()
             cur.execute('INSERT INTO musteriler (ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (%s, %s, %s, %s, %s)',
                          (ad_soyad, telefon, adres, eposta, session['kullanici_id']))
             conn.commit()
@@ -897,22 +905,22 @@ def musteri_ekle():
         return render_template('musteri_ekle.html', kategoriler=kategoriler)
     except Exception as e:
         print(f"Müşteri eklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Müşteri eklenirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('musteri_gecmisi'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/musteri_duzenle/<int:id>', methods=('GET', 'POST'))
 @login_required
-@role_required('admin') # SADECE ADMINLER müşteri düzenleyebilir
+@role_required('admin')
 def musteri_duzenle(id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM musteriler WHERE id = %s', (id,))
         musteri = cur.fetchone()
 
@@ -941,12 +949,12 @@ def musteri_duzenle(id):
         return render_template('musteri_duzenle.html', musteri=musteri, kategoriler=kategoriler)
     except Exception as e:
         print(f"Müşteri düzenlenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Müşteri düzenlenirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('musteri_gecmisi'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/ayarlar', methods=('GET', 'POST'))
@@ -954,9 +962,9 @@ def musteri_duzenle(id):
 @role_required('admin')
 def ayarlar():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM ayarlar WHERE id = 1')
         sirket_bilgileri = cur.fetchone()
 
@@ -987,12 +995,12 @@ def ayarlar():
         return render_template('ayarlar.html', sirket_bilgileri=sirket_bilgileri, kategoriler=kategoriler)
     except Exception as e:
         print(f"Ayarlar yüklenirken/kaydedilirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Ayarlar yüklenirken/kaydedilirken bir hata oluştu.', 'danger')
         if conn: conn.rollback()
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 
@@ -1000,9 +1008,9 @@ def ayarlar():
 @login_required
 def satis_yap():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM urunler ORDER BY ad')
         urunler = cur.fetchall()
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
@@ -1012,11 +1020,11 @@ def satis_yap():
         return render_template('satis_yap.html', urunler=urunler, kategoriler=kategoriler, musteriler=musteriler)
     except Exception as e:
         print(f"Satış yap sayfası yüklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Satış yap sayfası yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/satis_onayla', methods=['POST'])
@@ -1036,9 +1044,9 @@ def satis_onayla():
         return jsonify({'success': False, 'message': 'Sepet boş ve işçilik fiyatı sıfır. Lütfen ürün ekleyin veya işçilik fiyatı girin.'}), 400
 
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
 
         # 1. Stok kontrolü yap ve toplam ürün fiyatını hesapla
         toplam_urun_fiyati = 0
@@ -1085,21 +1093,21 @@ def satis_onayla():
 
     except Exception as e:
         print(f"Satış sırasında bir hata oluştu: {e}")
-        import traceback
         traceback.print_exc()
         if conn: conn.rollback()
         return jsonify({'success': False, 'message': f"Satış sırasında bir hata oluştu: {str(e)}"}), 500
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/musteri_gecmisi')
 @login_required
 def musteri_gecmisi():
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
-        # Müşteri Geçmişi rotası: Admin tüm müşterileri görür, Personel sadece kendi eklediği müşterileri görür
+        conn, cur = get_db_cursor()
+        # Müşteri Geçmişi rotası: Admin tüm müşterileri görür, personel sadece kendi eklediği müşterileri görür
         if session.get('rol') == 'admin':
             cur.execute('SELECT id, ad_soyad, telefon, eposta FROM musteriler ORDER BY ad_soyad')
             musteriler = cur.fetchall()
@@ -1112,20 +1120,20 @@ def musteri_gecmisi():
         return render_template('musteri_gecmisi.html', musteriler=musteriler, kategoriler=kategoriler)
     except Exception as e:
         print(f"Müşteri geçmişi yüklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Müşteri geçmişi yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/musteri_detay/<int:musteri_id>')
 @login_required
 def musteri_detay(musteri_id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
 
         cur.execute('SELECT * FROM musteriler WHERE id = %s', (musteri_id,))
         musteri = cur.fetchone()
@@ -1169,7 +1177,6 @@ def musteri_detay(musteri_id):
                     'ek_notlar': satis_item['ek_notlar'],
                     'urunler': []
                 }
-            # urun_ad NULL gelirse (LEFT JOIN'den dolayı ürün yoksa) eklemiyoruz
             if satis_item['urun_ad']:
                 gruplanmis_satislar[satis_id]['urunler'].append({
                     'urun_ad': satis_item['urun_ad'],
@@ -1185,20 +1192,20 @@ def musteri_detay(musteri_id):
         return render_template('musteri_detay.html', musteri=musteri, satislar=satis_listesi, kategoriler=kategoriler)
     except Exception as e:
         print(f"Müşteri detayları yüklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Müşteri detayları yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('musteri_gecmisi'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 @app.route('/fatura/<int:satis_id>')
 @login_required
 def fatura(satis_id):
     conn = None
+    cur = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # RealDictCursor
+        conn, cur = get_db_cursor()
 
         cur.execute('SELECT * FROM satislar WHERE id = %s', (satis_id,))
         satis = cur.fetchone()
@@ -1227,14 +1234,14 @@ def fatura(satis_id):
         cur.execute('SELECT * FROM ayarlar WHERE id = 1')
         sirket_bilgileri = cur.fetchone()
         if sirket_bilgileri is None:
-            sirket_bilgileri = {'sirket_adi': 'Şirket Adı Yok', 'adres': '', 'telefon': '', 'eposta': ''} # Sözlük olarak varsayılan değer
+            sirket_bilgileri = {'sirket_adi': 'Şirket Adı Yok', 'adres': '', 'telefon': '', 'eposta': ''}
 
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
 
         toplam_urun_fiyati = satis['toplam_urun_fiyati']
         iscilik_fiyati = satis['iscilik_fiyati']
-        genel_toplam = toplam_urun_fiyati + iscilik_fiyati
+        genel_toplam = toplam_urun_fiyati + iscilik_fiyati # Zaten hesaplanmış
 
         return render_template('fatura.html',
                                satis=satis,
@@ -1245,11 +1252,11 @@ def fatura(satis_id):
                                kategoriler=kategoriler)
     except Exception as e:
         print(f"Fatura yüklenirken hata: {e}")
-        import traceback
         traceback.print_exc()
         flash('Fatura yüklenirken bir hata oluştu.', 'danger')
         return redirect(url_for('anasayfa'))
     finally:
+        if cur: cur.close()
         if conn: conn.close()
 
 # Uygulamayı çalıştır
