@@ -107,6 +107,10 @@
             text-align: center;
             width: 100%;
         }
+        /* Personel için stok sütununu gizle */
+        .hide-for-personel {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -240,7 +244,7 @@
                 <thead>
                     <tr>
                         <th>Ürün Adı</th>
-                        <th>Stok</th>
+                        <th {% if session.get('rol') == 'personel' %} class="d-none" {% endif %}>Stok</th> {# Stok sütunu personelden gizlendi #}
                         <th>Satış Fiyatı</th>
                         <th>Birim</th>
                         <th>Kategori</th>
@@ -252,10 +256,10 @@
                     {% for urun in urunler %}
                     <tr data-id="{{ urun['id'] }}" data-ad="{{ urun['ad'] }}" data-fiyat="{{ urun['satis_fiyat'] }}" data-stok="{{ urun['stok'] }}" data-kategori="{{ urun['kategori'] }}">
                         <td>{{ urun['ad'] }}</td>
-                        <td><span class="mevcut-stok">{{ urun['stok'] }}</span> {{ urun['birim'] }}</td>
+                        <td {% if session.get('rol') == 'personel' %} class="d-none" {% endif %}><span class="mevcut-stok">{{ urun['stok'] }}</span> {{ urun['birim'] }}</td> {# Stok hücresi personelden gizlendi #}
                         <td>{{ "%.2f"|format(urun['satis_fiyat']) }} TL</td>
                         <td>{{ urun['birim'] }}</td>
-                        <td><input type="number" class="form-control adet-input" value="1" min="1" max="{{ urun['stok'] }}" onchange="validateAdet(this)"></td>
+                        <td><input type="number" class="form-control adet-input" value="1" min="1" {% if session.get('rol') != 'personel' %} max="{{ urun['stok'] }}" {% endif %} onchange="validateAdet(this)"></td> {# max özelliği personelden gizlendi #}
                         <td><button class="btn btn-sm btn-primary" onclick="addToCart(this)">Sepete Ekle</button></td>
                     </tr>
                     {% endfor %}
@@ -303,6 +307,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let cart = []; 
+        const userRole = "{{ session.get('rol') }}"; // Kullanıcı rolünü JS'ye geçir
 
         document.addEventListener('DOMContentLoaded', (event) => {
             const savedCart = localStorage.getItem('satisSepeti');
@@ -322,7 +327,8 @@
             const urunId = row.dataset.id;
             const urunAd = row.dataset.ad;
             const urunFiyat = parseFloat(row.dataset.fiyat);
-            const urunStok = parseInt(row.dataset.stok);
+            let urunStok = parseInt(row.dataset.stok); // Mevcut stok
+
             const adetInput = row.querySelector('.adet-input');
             let adet = parseInt(adetInput.value);
 
@@ -330,16 +336,19 @@
                 alert('Geçerli bir adet giriniz.');
                 return;
             }
-            if (adet > urunStok) {
-                alert(`"${urunAd}" için yeterli stok yok. Mevcut: ${urunStok}, İstenen: ${adet}`);
-                return;
+            
+            // Eğer personel değilse veya admin ise stok kontrolünü yap
+            if (userRole !== 'personel' && adet > urunStok) { // Personel olmayanlar için stok kontrolü
+                 alert(`"${urunAd}" için yeterli stok yok. Mevcut: ${urunStok}, İstenen: ${adet}`);
+                 return;
             }
 
             const existingItemIndex = cart.findIndex(item => item.id == urunId);
 
             if (existingItemIndex > -1) {
                 const newTotalAdet = cart[existingItemIndex].adet + adet;
-                if (newTotalAdet > urunStok) {
+                // Eğer personel değilse veya admin ise toplam stok kontrolünü yap
+                if (userRole !== 'personel' && newTotalAdet > urunStok) {
                     alert(`"${urunAd}" için toplamda yeterli stok yok. Sepetteki: ${cart[existingItemIndex].adet}, Eklenecek: ${adet}, Mevcut: ${urunStok}`);
                     return;
                 }
@@ -350,7 +359,7 @@
                     ad: urunAd,
                     fiyat: urunFiyat,
                     adet: adet,
-                    mevcutStok: urunStok 
+                    mevcutStok: urunStok // Bu stok bilgisi sadece adminler için kullanılır, personele gösterilmez
                 });
             }
             
@@ -378,7 +387,7 @@
 
                 row.innerHTML = `
                     <td>${item.ad}</td>
-                    <td><input type="number" value="${item.adet}" min="1" max="${item.mevcutStok}" onchange="updateCartItemAdet(${index}, this.value)" class="form-control form-control-sm"></td>
+                    <td><input type="number" value="${item.adet}" min="1" onchange="updateCartItemAdet(${index}, this.value)" class="form-control form-control-sm"></td> {# max özelliği kaldırıldı, JS içinde koşullu kontrol edilecek #}
                     <td>${formatCurrencyDisplay(item.fiyat)} TL</td> 
                     <td>${formatCurrencyDisplay(toplamFiyat)} TL</td> 
                     <td><button onclick="removeFromCart(${index})" class="btn btn-danger btn-sm">Sil</button></td>
@@ -409,8 +418,10 @@
                 renderCart(); 
                 return;
             }
-            const maxStok = cart[index].mevcutStok; 
-            if (newAdet > maxStok) {
+            const maxStok = cart[index].mevcutStok; // Bu değeri kullanmaya devam et
+            
+            // Eğer personel değilse veya admin ise stok kontrolünü yap
+            if (userRole !== 'personel' && newAdet > maxStok) {
                 alert(`Maksimum stok miktarı ${maxStok}.`);
                 newAdet = maxStok; 
             }

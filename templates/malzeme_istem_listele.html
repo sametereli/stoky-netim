@@ -95,6 +95,17 @@
             text-align: center;
             width: 100%;
         }
+        /* Yeni gruplama başlıkları için stil */
+        .personel-group-heading {
+            background-color: #e2e6ea; /* Açık gri arka plan */
+            padding: 10px 15px;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            font-size: 1.3rem;
+            color: #495057;
+            border: 1px solid #ced4da;
+        }
     </style>
 </head>
 <body>
@@ -188,68 +199,72 @@
             <a href="{{ url_for('malzeme_istem_olustur') }}" class="btn btn-success">Yeni İstek Oluştur</a>
             {% endif %}
         </div>
-        <div class="table-responsive">
-            <table class="table table-striped table-bordered table-hover" id="istekTablosu">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Ürün</th>
-                        <th>Adet</th>
-                        <th>Talep Eden</th>
-                        <th>Talep Tarihi</th>
-                        <th>Durum</th>
-                        <th>Açıklama</th>
-                        <th>İşlemler</th> {# Sadece adminler için #}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for istem in istemler %}
-                    <tr class="
-                        {% if istem['durum'] == 'Beklemede' %}table-warning{% endif %}
-                        {% if istem['durum'] == 'Onaylandı' %}table-success{% endif %}
-                        {% if istem['durum'] == 'Reddedildi' %}table-danger{% endif %}
-                    ">
-                        <td>{{ istem['id'] }}</td>
-                        <td>{{ istem['urun_ad'] }} (ID:{{ istem['urun_id'] }})</td>
-                        <td>{{ istem['talep_edilen_adet'] }} {{ istem['urun_birim'] }}</td>
-                        <td>{{ istem['talep_eden_kullanici_adi'] }}</td>
-                        <td>{{ istem['talep_tarihi'] }}</td>
-                        <td>
-                            <span class="
-                                {% if istem['durum'] == 'Beklemede' %}durum-beklemede{% endif %}
-                                {% if istem['durum'] == 'Onaylandı' %}durum-onaylandi{% endif %}
-                                {% if istem['durum'] == 'Reddedildi' %}durum-reddedildi{% endif %}
-                            ">{{ istem['durum'] }}</span>
-                            {% if istem['durum'] != 'Beklemede' %}
-                                <br><small>({{ istem['onaylayan_kullanici_adi'] }} tarafından)</small>
-                            {% endif %}
-                        </td>
-                        <td>{{ istem['aciklama'] if istem['aciklama'] else '-' }}</td>
-                        <td class="action-buttons">
-                            {% if session.get('rol') == 'admin' and istem['durum'] == 'Beklemede' %}
-                                <form action="{{ url_for('malzeme_istem_onayla_reddet', istem_id=istem['id']) }}" method="POST" style="display:inline;" onsubmit="return confirm('Bu istemi onaylamak istediğinizden emin misiniz? Stoktan düşülecektir.');">
-                                    <input type="hidden" name="action" value="onayla">
-                                    <button type="submit" class="btn btn-sm btn-success">Onayla</button>
-                                </form>
-                                <form action="{{ url_for('malzeme_istem_onayla_reddet', istem_id=istem['id']) }}" method="POST" style="display:inline;" onsubmit="return confirm('Bu istemi reddetmek istediğinizden emin misiniz?');">
-                                    <input type="hidden" name="action" value="reddet">
-                                    <button type="submit" class="btn btn-sm btn-danger">Reddet</button>
-                                </form>
-                            {% elif session.get('rol') == 'admin' and istem['durum'] != 'Beklemede' %}
-                                <span class="text-muted">İşlem Tamamlandı</span>
-                            {% else %}
-                                <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="8" class="text-center text-muted">Henüz malzeme istemi bulunmuyor.</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        
+        {# Personel Bazında Gruplanmış İstemleri Göster #}
+        {% if gruplanmis_istemler %}
+            {% for personel_adi, istem_listesi in gruplanmis_istemler.items() %}
+                <h3 class="personel-group-heading">{{ personel_adi }}'den Gelen İstemler</h3>
+                <div class="table-responsive">
+                    <table class="table table-striped table-bordered table-hover istek-tablosu"> {# Her grup için yeni bir tablo veya aynı id'yi kullanmak için js ayarı #}
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Ürün</th>
+                                <th>Adet</th>
+                                <th>Talep Tarihi</th>
+                                <th>Durum</th>
+                                <th>Açıklama</th>
+                                {% if session.get('rol') == 'admin' %}<th>İşlemler</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for istem in istem_listesi %}
+                            <tr class="
+                                {% if istem['durum'] == 'Beklemede' %}table-warning{% endif %}
+                                {% if istem['durum'] == 'Onaylandı' %}table-success{% endif %}
+                                {% if istem['durum'] == 'Reddedildi' %}table-danger{% endif %}
+                            ">
+                                <td>{{ istem['id'] }}</td>
+                                <td>{{ istem['urun_ad'] }} (ID:{{ istem['urun_id'] }})</td>
+                                <td>{{ istem['talep_edilen_adet'] }} {{ istem['urun_birim'] }}</td>
+                                <td>{{ istem['talep_tarihi'] }}</td>
+                                <td>
+                                    <span class="
+                                        {% if istem['durum'] == 'Beklemede' %}durum-beklemede{% endif %}
+                                        {% if istem['durum'] == 'Onaylandı' %}durum-onaylandi{% endif %}
+                                        {% if istem['durum'] == 'Reddedildi' %}durum-reddedildi{% endif %}
+                                    ">{{ istem['durum'] }}</span>
+                                    {% if istem['durum'] != 'Beklemede' %}
+                                        <br><small>({{ istem['onaylayan_kullanici_adi'] }} tarafından)</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ istem['aciklama'] if istem['aciklama'] else '-' }}</td>
+                                {% if session.get('rol') == 'admin' %}
+                                <td class="action-buttons">
+                                    {% if istem['durum'] == 'Beklemede' %}
+                                        <form action="{{ url_for('malzeme_istem_onayla_reddet', istem_id=istem['id']) }}" method="POST" style="display:inline;" onsubmit="return confirm('Bu istemi onaylamak istediğinizden emin misiniz? Stoktan düşülecektir.');">
+                                            <input type="hidden" name="action" value="onayla">
+                                            <button type="submit" class="btn btn-sm btn-success">Onayla</button>
+                                        </form>
+                                        <form action="{{ url_for('malzeme_istem_onayla_reddet', istem_id=istem['id']) }}" method="POST" style="display:inline;" onsubmit="return confirm('Bu istemi reddetmek istediğinizden emin misiniz?');">
+                                            <input type="hidden" name="action" value="reddet">
+                                            <button type="submit" class="btn btn-sm btn-danger">Reddet</button>
+                                        </form>
+                                    {% else %}
+                                        <span class="text-muted">İşlem Tamamlandı</span>
+                                    {% endif %}
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-center text-muted mt-4">Henüz malzeme istemi bulunmuyor.</p>
+        {% endif %}
+
         <a href="{{ url_for('anasayfa') }}" class="btn btn-secondary mt-3">Ana Sayfaya Dön</a>
     </div>
 
@@ -266,14 +281,25 @@
     <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
     <script>
         $(document).ready(function() {
-            $('#istekTablosu').DataTable({
-                "order": [[4, "desc"]], // Talep Tarihine göre varsayılan sıralama (en yeni üste)
-                "language": {
-                    "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json" 
-                },
-                "columnDefs": [
-                    { "orderable": false, "targets": [7] } // "İşlemler" sütununu sıralanamaz yap
-                ]
+            // Her bir istek tablosuna DataTables uygula (eğer birden fazla tablo olursa)
+            // Eğer tek bir genel tabloya DataTables uygulayacaksak, şu anki #istekTablosu ID'sini kullanırız
+            // ve gruplanmış başlıklar DataTables'ın dışında kalır.
+            // Bu haliyle, DataTables'ı her bir tabloya değil, tek bir ana tabloya uygulayarak arama/sıralama
+            // yapmasını sağlayacağız, ancak görsel gruplama başlıkları ayrı kalacak.
+            // Eğer her grup için ayrı tablo ve ayrı arama/sıralama istenseydi, JS daha karmaşık olurdu.
+
+            // Mevcut yapıda, "istek-tablosu" sınıfına sahip tüm tablolara DataTables uygulayacağız.
+            // Bu sayede, her personel grubunun tablosu ayrı ayrı dinamik olur.
+            $('.istek-tablosu').each(function() {
+                $(this).DataTable({
+                    "order": [[3, "desc"]], // Talep Tarihine göre varsayılan sıralama (index 3 oldu)
+                    "language": {
+                        "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json" 
+                    },
+                    "columnDefs": [
+                        { "orderable": false, "targets": [6] } // "İşlemler" sütununu sıralanamaz yap (index 6 oldu)
+                    ]
+                });
             });
         });
     </script>
