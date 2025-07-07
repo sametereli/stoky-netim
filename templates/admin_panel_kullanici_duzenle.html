@@ -19,6 +19,7 @@
             padding: 30px;
             margin-top: 30px;
             margin-bottom: 30px;
+            max-width: 700px;
         }
         h1 {
             color: #0056b3;
@@ -65,7 +66,6 @@
     </style>
 </head>
 <body>
-    {# Navbar - Genel Navbar yapısı #}
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('anasayfa') }}">
@@ -106,7 +106,8 @@
     </nav>
 
     <div class="container">
-        <h1>Kullanıcı Rolünü Düzenle: {{ kullanici['kullanici_adi'] }}</h1>
+        <h1>Kullanıcı Düzenle: {{ kullanici.kullanici_adi }}</h1>
+        
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -121,19 +122,33 @@
         <form method="POST">
             <div class="mb-3">
                 <label for="kullanici_adi" class="form-label">Kullanıcı Adı:</label>
-                <input type="text" id="kullanici_adi" name="kullanici_adi" class="form-control" value="{{ kullanici['kullanici_adi'] }}" disabled>
+                <input type="text" id="kullanici_adi" name="kullanici_adi" class="form-control" value="{{ kullanici.kullanici_adi }}" disabled>
             </div>
             <div class="mb-3">
                 <label for="rol" class="form-label">Rol:</label>
-                <select id="rol" name="rol" class="form-select" required {% if kullanici['id'] == session.get('kullanici_id') %}disabled{% endif %}>
-                    <option value="personel" {% if kullanici['rol'] == 'personel' %}selected{% endif %}>Personel</option>
-                    <option value="admin" {% if kullanici['rol'] == 'admin' %}selected{% endif %}>Admin</option>
+                <select id="rol" name="rol" class="form-select" required {% if kullanici.id == session.get('kullanici_id') %}disabled{% endif %}>
+                    <option value="personel" {% if kullanici.rol == 'personel' %}selected{% endif %}>Personel</option>
+                    <option value="admin" {% if kullanici.rol == 'admin' %}selected{% endif %}>Admin</option>
                 </select>
-                {% if kullanici['id'] == session.get('kullanici_id') %}
+                {% if kullanici.id == session.get('kullanici_id') %}
                 <div class="form-text text-muted">Kendi rolünüzü değiştiremezsiniz.</div>
                 {% endif %}
             </div>
-            <button type="submit" class="btn btn-primary" {% if kullanici['id'] == session.get('kullanici_id') %}disabled{% endif %}>Kaydet</button>
+            
+            <hr>
+            <h5 class="mt-4">Parolayı Değiştir (İsteğe Bağlı)</h5>
+            <p class="text-muted"><small>Eğer parolayı değiştirmek istemiyorsanız bu alanları boş bırakmanız yeterlidir.</small></p>
+
+            <div class="mb-3">
+                <label for="yeni_parola" class="form-label">Yeni Parola</label>
+                <input type="password" class="form-control" id="yeni_parola" name="yeni_parola" placeholder="Yeni parolayı girin">
+            </div>
+
+            <div class="mb-3">
+                <label for="yeni_parola_tekrar" class="form-label">Yeni Parola (Tekrar)</label>
+                <input type="password" class="form-control" id="yeni_parola_tekrar" name="yeni_parola_tekrar" placeholder="Yeni parolayı tekrar girin">
+            </div>
+            <button type="submit" class="btn btn-primary">Kaydet</button>
             <a href="{{ url_for('admin_panel_kullanicilar') }}" class="btn btn-secondary ms-2">İptal</a>
         </form>
     </div>

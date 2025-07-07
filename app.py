@@ -1,74 +1,68 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash
-# SQLite yerine PostgreSQL için psycopg2 ve os modülünü kullanacağız
 import psycopg2
-import psycopg2.extras # Sözlük olarak sonuç almak için RealDictCursor
+import psycopg2.extras
 import datetime
 import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-import traceback # Hata ayıklama için eklendi
+import traceback
+from dotenv import load_dotenv
 
-# Flask uygulamasını oluştur
+load_dotenv()
+
 app = Flask(__name__,
             static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
             static_url_path='/static')
 
-# Oturum güvenliği için gizli bir anahtar. ÇOK ÖNEMLİ!
-# Üretimde bu anahtarı güvenli bir yerden alın (örn. çevre değişkeni)
-# Bu değeri rastgele ve uzun bir string ile DEĞİŞTİRMEYİ UNUTMAYIN!
-# Burayı daha güvenli bir anahtarla değiştirmeyi unutmayın!
-app.config['SECRET_KEY'] = 'GERCEK_VE_GUVENLI_BIR_ANAHTAR_BURAYA_GELMELI_UZUN_VE_RASTGELE_LUTFEN_DEGISTIRIN'
+app.config['SECRET_KEY'] = 'u83HsdK29sdlQWmA9283nslfLZMXpq91Lkd73KDma91nXzplKQ73hszPqpWmZlXnA73mqpw8293msnQPz'
 
-# Jinja2 şablonlarında Python'ın datetime.datetime.now() fonksiyonunu kullanabilmek için
 app.jinja_env.globals.update(now=datetime.datetime.now)
 
-# Yeni Jinja2 filtresi: Sayıları TL formatına dönüştürür (örn. 1234.56 -> 1.234,56 TL)
 def format_tl(value):
     if value is None:
         return "0,00 TL"
     try:
         formatted_value = "{:,.2f}".format(float(value))
-        # Türkiye formatına uygun virgül ve nokta dönüşümü
         return formatted_value.replace(",", "X").replace(".", ",").replace("X", ".") + " TL"
     except (ValueError, TypeError):
         return str(value) + " TL"
 
 app.jinja_env.filters['format_tl'] = format_tl
 
-# Veritabanı bağlantısı ve cursor için yardımcı fonksiyon (PostgreSQL için güncellendi)
 def get_db_cursor(dictionary=True):
     conn = None
     cur = None
     try:
-        # DATABASE_URL Render ortam değişkenlerinden alınır
         DATABASE_URL = os.environ.get('DATABASE_URL')
         if not DATABASE_URL:
-            # Yerel geliştirme için veya DATABASE_URL ayarlanmamışsa ValueError fırlat
-            # Eğer yerelde test ediyorsanız burayı yerel PostgreSQL bağlantı dizenizle doldurun
-            raise ValueError("DATABASE_URL ortam değişkeni ayarlanmadı! Lütfen Render'da veya yerel .env dosyanızda ayarlayın.")
-
+            raise ValueError("DATABASE_URL ortam değişkeni ayarlanmadı!")
         conn = psycopg2.connect(DATABASE_URL)
         if dictionary:
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # Sonuçları sözlük olarak döndürür
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         else:
-            cur = conn.cursor() # Varsayılan tuple olarak döndürür
+            cur = conn.cursor()
         return conn, cur
     except Exception as e:
         print(f"Veritabanı bağlantısı veya cursor oluşturma hatası: {e}")
         traceback.print_exc()
-        if conn: # Hata oluşursa bağlantıyı kapat
+        if conn:
             conn.close()
-        raise # Hatayı yeniden fırlat, uygulamanın başlamasını engelle
+        raise
 
-
-# Veritabanını başlatma fonksiyonu (PostgreSQL ve örnek veri temizliği için güncellendi)
 def init_db():
     conn = None
     cur = None
     try:
-        conn, cur = get_db_cursor(dictionary=False) # Tablo oluşturma için DictCursor'a gerek yok
-
-        # urunler tablosu (SERIAL PRIMARY KEY PostgreSQL'de otomatik artan ID için)
+        conn, cur = get_db_cursor(dictionary=False)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS kullanicilar (
+                id SERIAL PRIMARY KEY,
+                kullanici_adi TEXT NOT NULL UNIQUE,
+                parola_hash TEXT NOT NULL,
+                rol TEXT NOT NULL DEFAULT 'personel',
+                aktif BOOLEAN DEFAULT TRUE
+            );
+        ''')
         cur.execute('''
             CREATE TABLE IF NOT EXISTS urunler (
                 id SERIAL PRIMARY KEY,
@@ -80,8 +74,6 @@ def init_db():
                 kategori TEXT NOT NULL
             );
         ''')
-
-        # musteriler tablosu - ekleyen_kullanici_id sütunu eklendi
         cur.execute('''
             CREATE TABLE IF NOT EXISTS musteriler (
                 id SERIAL PRIMARY KEY,
@@ -93,8 +85,6 @@ def init_db():
                 FOREIGN KEY (ekleyen_kullanici_id) REFERENCES kullanicilar (id)
             );
         ''')
-
-        # satislar tablosu (Ana satış işlemi kaydı)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS satislar (
                 id SERIAL PRIMARY KEY,
@@ -106,8 +96,6 @@ def init_db():
                 FOREIGN KEY (musteri_id) REFERENCES musteriler (id)
             );
         ''')
-
-        # satis_detaylari tablosu (Her bir satış işlemindeki satılan ürünlerin detayları)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS satis_detaylari (
                 id SERIAL PRIMARY KEY,
@@ -115,34 +103,10 @@ def init_db():
                 urun_id INTEGER NOT NULL,
                 satilan_adet INTEGER NOT NULL,
                 birim_satis_fiyati REAL NOT NULL,
-                FOREIGN KEY (satis_id) REFERENCES satislar (id),
+                FOREIGN KEY (satis_id) REFERENCES satislar (id) ON DELETE CASCADE,
                 FOREIGN KEY (urun_id) REFERENCES urunler (id)
             );
         ''')
-
-        # Ayarlar tablosu
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS ayarlar (
-                id SERIAL PRIMARY KEY,
-                sirket_adi TEXT,
-                adres TEXT,
-                telefon TEXT,
-                eposta TEXT,
-                düsuk_stok_esigi INTEGER DEFAULT 10
-            );
-        ''')
-
-        # Kullanicilar tablosu (Kullanıcı Yönetimi için)
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS kullanicilar (
-                id SERIAL PRIMARY KEY,
-                kullanici_adi TEXT NOT NULL UNIQUE,
-                parola_hash TEXT NOT NULL,
-                rol TEXT NOT NULL DEFAULT 'personel'
-            );
-        ''')
-
-        # Malzeme İstemleri tablosu
         cur.execute('''
             CREATE TABLE IF NOT EXISTS malzeme_istemleri (
                 id SERIAL PRIMARY KEY,
@@ -159,63 +123,47 @@ def init_db():
                 FOREIGN KEY (onaylayan_kullanici_id) REFERENCES kullanicilar (id)
             );
         ''')
-
-
-        # Varsayılan ayarları ekle (ON CONFLICT (id) DO NOTHING PostgreSQL'de INSERT OR IGNORE eşdeğeri)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS ayarlar (
+                id SERIAL PRIMARY KEY,
+                sirket_adi TEXT,
+                adres TEXT,
+                telefon TEXT,
+                eposta TEXT,
+                düsuk_stok_esigi INTEGER DEFAULT 10
+            );
+        ''')
         cur.execute("INSERT INTO ayarlar (id, sirket_adi, adres, telefon, eposta, düsuk_stok_esigi) VALUES (1, 'Şirket Adınız', 'Şirket Adresi', '0 (XXX) XXX XX XX', 'info@sirketiniz.com', 10) ON CONFLICT (id) DO NOTHING;")
-
-        # Örnek yönetici kullanıcısı ekle (sadece bir kez, eğer yoksa)
         cur.execute("SELECT id FROM kullanicilar WHERE kullanici_adi = 'admin'")
         if not cur.fetchone():
             hashed_password = generate_password_hash('adminpass', method='pbkdf2:sha256')
             cur.execute("INSERT INTO kullanicilar (kullanici_adi, parola_hash, rol) VALUES (%s, %s, %s)",
-                         ('admin', hashed_password, 'admin'))
+                          ('admin', hashed_password, 'admin'))
             print("Varsayılan 'admin' kullanıcısı eklendi (Parola: adminpass)")
-
-        # Örnek personel kullanıcısı ekle (sadece bir kez, eğer yoksa)
         cur.execute("SELECT id FROM kullanicilar WHERE kullanici_adi = 'personel'")
         if not cur.fetchone():
             hashed_password = generate_password_hash('personelpass', method='pbkdf2:sha256')
             cur.execute("INSERT INTO kullanicilar (kullanici_adi, parola_hash, rol) VALUES (%s, %s, %s)",
-                         ('personel', hashed_password, 'personel'))
+                          ('personel', hashed_password, 'personel'))
             print("Varsayılan 'personel' kullanıcısı eklendi (Parola: personelpass)")
-
-
-        # BURADAKİ TÜM ÖRNEK ÜRÜN VE MÜŞTERİ VERİ EKLEME SATIRLARI YORUM SATIRI YAPILDI
-        # Bunlar artık uygulamanızın her başladığında veri tabanına yeniden eklenmeyecek.
-        # Ürünlerinizi ve müşterilerinizi web arayüzünden eklemelisiniz.
-        # cur.execute("INSERT INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (1, '3*2,5 nym kablo', 50, 15.00, 20.00, 'metre', 'Kablolar') ON CONFLICT (id) DO NOTHING;")
-        # cur.execute("INSERT INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (2, 'Sıva altı priz', 75, 20.00, 28.00, 'adet', 'Prizler') ON CONFLICT (id) DO NOTHING;")
-        # cur.execute("INSERT INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (3, 'Monitör', 30, 1200.00, 1500.00, 'adet', 'Elektronik') ON CONFLICT (id) DO NOTHING;")
-        # cur.execute("INSERT INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (4, 'Web Kamerası', 20, 300.00, 400.00, 'adet', 'Elektronik') ON CONFLICT (id) DO NOTHING;")
-        # cur.execute("INSERT INTO urunler (id, ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (5, '16 A sigorta', 36, 12.50, 17.00, 'adet', 'Sigortalar') ON CONFLICT (id) DO NOTHING;")
-
-        # Örnek müşteri verisi yorum satırı yapıldı
-        # cur.execute("INSERT INTO musteriler (id, ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (1, 'Ali Yılmaz', '5551234567', 'Örnek Mah. No:1 İstanbul', 'ali@example.com', 1) ON CONFLICT (id) DO NOTHING;")
-        # cur.execute("INSERT INTO musteriler (id, ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (2, 'Ayşe Demir', '5559876543', 'Deneme Sok. No:5 Ankara', 'ayse@example.com', 2) ON CONFLICT (id) DO NOTHING;")
-
         conn.commit()
     except Exception as e:
         print(f"init_db sırasında hata oluştu: {e}")
         traceback.print_exc()
         if conn:
-            conn.rollback() # Hata durumunda rollback yap
-        raise # Hatayı yeniden fırlat, uygulamanın başlamasını engelle
+            conn.rollback()
+        raise
     finally:
         if cur: cur.close()
         if conn: conn.close()
 
-# Uygulama başladığında veritabanını başlat
 with app.app_context():
     try:
         init_db()
     except Exception as e:
-        # Uygulama başlangıcında DB hatası oluşursa buraya düşer
         print(f"Uygulama başlatılırken kritik veritabanı hatası: {e}")
         traceback.print_exc()
 
-
-# --- Yetkilendirme için Yardımcı Fonksiyonlar/Dekoratörler ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -232,16 +180,13 @@ def role_required(required_role):
             if 'kullanici_id' not in session:
                 flash('Bu sayfaya erişmek için giriş yapmalısınız.', 'danger')
                 return redirect(url_for('giris'))
-
             conn = None
             cur = None
             try:
-                conn, cur = get_db_cursor() # Default olarak dictionary=True döner
+                conn, cur = get_db_cursor()
                 cur.execute('SELECT rol FROM kullanicilar WHERE id = %s', (session['kullanici_id'],))
-                user = cur.fetchone() # user RealDictRow objesi, sözlük gibi davranır
-
-                user_role = user['rol'] if user else None # Rol değerini güvenli bir şekilde al
-
+                user = cur.fetchone()
+                user_role = user['rol'] if user else None
                 if user_role and user_role == required_role:
                     return f(*args, **kwargs)
                 else:
@@ -258,7 +203,6 @@ def role_required(required_role):
         return decorated_function
     return decorator
 
-# --- Kullanıcı Kimlik Doğrulama Rotaları ---
 @app.route('/kayit', methods=('GET', 'POST'))
 def kayit():
     conn = None
@@ -266,47 +210,37 @@ def kayit():
     try:
         conn, cur = get_db_cursor()
         cur.execute('SELECT COUNT(*) FROM kullanicilar')
-        user_count = cur.fetchone()['count'] # RealDictCursor ile 'count' anahtarı
-        
+        user_count = cur.fetchone()['count']
         if user_count > 0 and (session.get('kullanici_id') is None or session.get('rol') != 'admin'):
             flash('Yeni kullanıcı oluşturmak için yönetici olmalısınız.', 'danger')
             return redirect(url_for('anasayfa'))
-
         if request.method == 'POST':
             kullanici_adi = request.form['kullanici_adi']
             parola = request.form['parola']
             parola_tekrar = request.form['parola_tekrar']
-            
             if not kullanici_adi or not parola:
                 flash('Kullanıcı adı ve parola boş bırakılamaz!', 'danger')
                 return redirect(url_for('kayit'))
-            
             if parola != parola_tekrar:
                 flash('Parolalar eşleşmiyor!', 'danger')
                 return redirect(url_for('kayit'))
-            
-            # Bağlantıyı yeniden aç, çünkü yukarıda kapatılmış olabilir
             conn, cur = get_db_cursor() 
             cur.execute('SELECT id FROM kullanicilar WHERE kullanici_adi = %s', (kullanici_adi,))
             existing_user = cur.fetchone()
             if existing_user:
                 flash('Bu kullanıcı adı zaten mevcut!', 'danger')
                 return redirect(url_for('kayit'))
-            
             hashed_password = generate_password_hash(parola, method='pbkdf2:sha256')
-            
             if user_count == 0:
                 rol = 'admin'
                 flash('Sistemin ilk kullanıcısı (YÖNETİCİ) başarıyla oluşturuldu! Şimdi giriş yapabilirsiniz.', 'success')
             else:
                 rol = 'personel' 
                 flash('Yeni personel hesabı başarıyla oluşturuldu!', 'success')
-
             cur.execute('INSERT INTO kullanicilar (kullanici_adi, parola_hash, rol) VALUES (%s, %s, %s)',
-                         (kullanici_adi, hashed_password, rol))
+                          (kullanici_adi, hashed_password, rol))
             conn.commit()
             return redirect(url_for('giris'))
-            
     except Exception as e:
         print(f"Kayıt sırasında hata: {e}")
         traceback.print_exc()
@@ -317,42 +251,34 @@ def kayit():
         if conn: conn.close()
     return render_template('kayit.html')
 
-
 @app.route('/giris', methods=('GET', 'POST'))
 def giris():
     if 'kullanici_id' in session:
         return redirect(url_for('anasayfa'))
-
     conn = None
     cur = None
     try:
         conn, cur = get_db_cursor()
         cur.execute('SELECT COUNT(*) FROM kullanicilar')
         user_count = cur.fetchone()['count']
-        
         if user_count == 0:
             flash('Sistemde hiç kullanıcı yok. Lütfen ilk kullanıcıyı (yönetici) oluşturun.', 'info')
             return redirect(url_for('kayit'))
-
         if request.method == 'POST':
             kullanici_adi = request.form['kullanici_adi']
             parola = request.form['parola']
-            
-            # Bağlantıyı yeniden aç
             conn, cur = get_db_cursor() 
             cur.execute('SELECT * FROM kullanicilar WHERE kullanici_adi = %s', (kullanici_adi,))
-            user = cur.fetchone() # RealDictRow döner
-            
+            user = cur.fetchone()
             if user and check_password_hash(user['parola_hash'], parola):
                 session['kullanici_id'] = user['id']
                 session['kullanici_adi'] = user['kullanici_adi']
-                session['rol'] = user['rol'] # user['rol'] ile role erişim
+                session['rol'] = user['rol']
                 flash(f'Hoş geldiniz, {user["kullanici_adi"]}!', 'success')
                 return redirect(url_for('anasayfa'))
             else:
                 flash('Geçersiz kullanıcı adı veya parola.', 'danger')
                 return redirect(url_for('giris'))
-                
     except Exception as e:
         print(f"Giriş sırasında hata: {e}")
         traceback.print_exc()
@@ -371,14 +297,13 @@ def cikis():
     flash('Başarıyla çıkış yaptınız.', 'info')
     return redirect(url_for('giris'))
 
-# --- Admin Paneli Rotaları (Sadece Admin Erişebilir) ---
 @app.route('/admin_panel/kullanicilar')
 @role_required('admin')
 def admin_panel_kullanicilar():
     conn = None
     cur = None
     try:
-        conn, cur = get_db_cursor() # RealDictCursor
+        conn, cur = get_db_cursor()
         cur.execute('SELECT id, kullanici_adi, rol FROM kullanicilar ORDER BY kullanici_adi')
         kullanicilar = cur.fetchall()
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
@@ -399,29 +324,35 @@ def admin_panel_kullanici_duzenle(id):
     conn = None
     cur = None
     try:
-        conn, cur = get_db_cursor() # RealDictCursor
+        conn, cur = get_db_cursor()
+        if request.method == 'POST':
+            yeni_rol = request.form['rol']
+            yeni_parola = request.form.get('yeni_parola')
+            yeni_parola_tekrar = request.form.get('yeni_parola_tekrar')
+            cur.execute('SELECT rol FROM kullanicilar WHERE id = %s', (id,))
+            kullanici_veritabani = cur.fetchone()
+            if id == session['kullanici_id'] and yeni_rol != kullanici_veritabani['rol']:
+                flash('Kendi rolünüzü değiştiremezsiniz!', 'danger')
+                return redirect(url_for('admin_panel_kullanici_duzenle', id=id))
+            if yeni_parola:
+                if yeni_parola != yeni_parola_tekrar:
+                    flash('Girilen yeni parolalar eşleşmiyor!', 'danger')
+                    return redirect(url_for('admin_panel_kullanici_duzenle', id=id))
+                yeni_parola_hash = generate_password_hash(yeni_parola, method='pbkdf2:sha256')
+                cur.execute('UPDATE kullanicilar SET rol = %s, parola_hash = %s WHERE id = %s', 
+                              (yeni_rol, yeni_parola_hash, id))
+                flash('Kullanıcı rolü ve parolası başarıyla güncellendi!', 'success')
+            else:
+                cur.execute('UPDATE kullanicilar SET rol = %s WHERE id = %s', (yeni_rol, id))
+                flash('Kullanıcı rolü başarıyla güncellendi!', 'success')
+            conn.commit()
+            return redirect(url_for('admin_panel_kullanicilar'))
         cur.execute('SELECT id, kullanici_adi, rol FROM kullanicilar WHERE id = %s', (id,))
         kullanici = cur.fetchone()
-
         if kullanici is None:
             flash('Kullanıcı bulunamadı!', 'danger')
             return redirect(url_for('admin_panel_kullanicilar'))
-
-        if request.method == 'POST':
-            yeni_rol = request.form['rol']
-
-            if kullanici['id'] == session['kullanici_id']:
-                flash('Kendi rolünüzü değiştiremezsiniz!', 'danger')
-                return redirect(url_for('admin_panel_kullanici_duzenle', id=id))
-
-            cur.execute('UPDATE kullanicilar SET rol = %s WHERE id = %s', (yeni_rol, id))
-            conn.commit()
-            flash('Kullanıcı rolü başarıyla güncellendi!', 'success')
-            return redirect(url_for('admin_panel_kullanicilar'))
-
-        cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
-        kategoriler = cur.fetchall()
-        return render_template('admin_panel_kullanici_duzenle.html', kullanici=kullanici, kategoriler=kategoriler)
+        return render_template('admin_panel_kullanici_duzenle.html', kullanici=kullanici)
     except Exception as e:
         print(f"Kullanıcı düzenleme hatası: {e}")
         traceback.print_exc()
@@ -432,7 +363,6 @@ def admin_panel_kullanici_duzenle(id):
         if cur: cur.close()
         if conn: conn.close()
 
-
 @app.route('/admin_panel/kullanici_sil/<int:id>', methods=('POST',))
 @role_required('admin')
 def admin_panel_kullanici_sil(id):
@@ -440,22 +370,17 @@ def admin_panel_kullanici_sil(id):
     cur = None
     try:
         conn, cur = get_db_cursor()
-
         if id == session['kullanici_id']:
             flash('Kendi hesabınızı silemezsiniz!', 'danger')
             return redirect(url_for('admin_panel_kullanicilar'))
-
         cur.execute("SELECT COUNT(*) FROM kullanicilar WHERE rol = 'admin'")
-        admin_count = cur.fetchone()['count'] # Sözlükten erişim
-
+        admin_count = cur.fetchone()['count']
         cur.execute("SELECT rol FROM kullanicilar WHERE id = %s", (id,))
         deleted_user = cur.fetchone()
-        deleted_user_role = deleted_user['rol'] if deleted_user else None # Sözlükten erişim
-
+        deleted_user_role = deleted_user['rol'] if deleted_user else None
         if admin_count == 1 and deleted_user_role == 'admin':
             flash('Sistemde son kalan yöneticiyi silemezsiniz!', 'danger')
             return redirect(url_for('admin_panel_kullanicilar'))
-
         cur.execute('DELETE FROM kullanicilar WHERE id = %s', (id,))
         conn.commit()
         flash('Kullanıcı başarıyla silindi!', 'info')
@@ -470,11 +395,9 @@ def admin_panel_kullanici_sil(id):
         if cur: cur.close()
         if conn: conn.close()
 
-
-# --- Malzeme İstemi Rotaları ---
 @app.route('/malzeme_istem/olustur', methods=('GET', 'POST'))
 @login_required
-@role_required('personel') # Sadece personeller istem oluşturabilir (Adminler bu rotaya erişemez)
+@role_required('personel')
 def malzeme_istem_olustur():
     conn = None
     cur = None
@@ -482,33 +405,25 @@ def malzeme_istem_olustur():
         conn, cur = get_db_cursor()
         cur.execute('SELECT id, ad, stok, birim FROM urunler ORDER BY ad')
         urunler_for_template = cur.fetchall()
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
-
         if request.method == 'POST':
             urun_ids = request.form.getlist('urun_id[]')
             talep_edilen_adetler = request.form.getlist('talep_edilen_adet[]')
             aciklama = request.form['aciklama']
-
             if not urun_ids or not talep_edilen_adetler:
                 flash('Lütfen en az bir ürün talep edin ve adetleri boş bırakmayın!', 'danger')
                 return render_template('malzeme_istem_olustur.html', urunler=urunler_for_template, kategoriler=kategoriler)
-
-            # Bağlantıyı yeniden aç, çünkü yukarıda kapatılmış olabilir (Flask'ta request başına bağlantı daha iyi)
             conn, cur = get_db_cursor()
             talep_tarihi = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             all_requests_valid = True
-
             for i in range(len(urun_ids)):
                 urun_id = urun_ids[i]
                 adet_str = talep_edilen_adetler[i]
-
                 if not urun_id or not adet_str:
                     flash('Tüm seçili ürünler için ürün ve adet boş bırakılamaz!', 'danger')
                     all_requests_valid = False
                     break
-
                 try:
                     talep_edilen_adet = int(adet_str)
                     if talep_edilen_adet <= 0:
@@ -519,18 +434,15 @@ def malzeme_istem_olustur():
                     flash(f"Ürün ID {urun_id} için talep edilen adet sayı olmalıdır!", 'danger')
                     all_requests_valid = False
                     break
-
                 cur.execute('INSERT INTO malzeme_istemleri (urun_id, talep_eden_kullanici_id, talep_edilen_adet, talep_tarihi, aciklama) VALUES (%s, %s, %s, %s, %s)',
-                             (urun_id, session['kullanici_id'], talep_edilen_adet, talep_tarihi, aciklama))
-
+                              (urun_id, session['kullanici_id'], talep_edilen_adet, talep_tarihi, aciklama))
             if all_requests_valid:
                 conn.commit()
                 flash('Malzeme istem(ler)i başarıyla oluşturuldu ve beklemede!', 'success')
                 return redirect(url_for('malzeme_istem_listele'))
             else:
-                conn.rollback() # Bir hata varsa tüm işlemleri geri al
+                conn.rollback()
                 return render_template('malzeme_istem_olustur.html', urunler=urunler_for_template, kategoriler=kategoriler)
-
         return render_template('malzeme_istem_olustur.html', urunler=urunler_for_template, kategoriler=kategoriler)
     except Exception as e:
         print(f"Malzeme istemi oluşturulurken hata: {e}")
@@ -542,7 +454,6 @@ def malzeme_istem_olustur():
         if cur: cur.close()
         if conn: conn.close()
 
-
 @app.route('/malzeme_istem/listele')
 @login_required
 def malzeme_istem_listele():
@@ -550,8 +461,7 @@ def malzeme_istem_listele():
     cur = None
     try:
         conn, cur = get_db_cursor()
-
-        # Yönetici tüm istemleri görür, personel sadece kendi istemlerini görür
+        istemler = []
         if session.get('rol') == 'admin':
             cur.execute('''
                 SELECT
@@ -566,7 +476,7 @@ def malzeme_istem_listele():
                 ORDER BY mi.talep_tarihi DESC
             ''')
             istemler = cur.fetchall()
-        else: # Personel sadece kendi istemlerini görür
+        else:
             cur.execute('''
                 SELECT
                     mi.id, mi.talep_edilen_adet, mi.talep_tarihi, mi.durum, mi.aciklama,
@@ -581,10 +491,15 @@ def malzeme_istem_listele():
                 ORDER BY mi.talep_tarihi DESC
             ''', (session['kullanici_id'],))
             istemler = cur.fetchall()
-
+        gruplanmis_istemler = {}
+        for istem in istemler:
+            personel_adi = istem['talep_eden_kullanici_adi']
+            if personel_adi not in gruplanmis_istemler:
+                gruplanmis_istemler[personel_adi] = []
+            gruplanmis_istemler[personel_adi].append(istem)
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
-        return render_template('malzeme_istem_listele.html', istemler=istemler, kategoriler=kategoriler)
+        return render_template('malzeme_istem_listele.html', gruplanmis_istemler=gruplanmis_istemler, kategoriler=kategoriler)
     except Exception as e:
         print(f"Malzeme istemleri listelenirken hata: {e}")
         traceback.print_exc()
@@ -594,47 +509,40 @@ def malzeme_istem_listele():
         if cur: cur.close()
         if conn: conn.close()
 
-
 @app.route('/malzeme_istem/onayla_reddet/<int:istem_id>', methods=['POST'])
 @role_required('admin')
 def malzeme_istem_onayla_reddet(istem_id):
     action = request.form.get('action')
-
     conn = None
     cur = None
     try:
         conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM malzeme_istemleri WHERE id = %s', (istem_id,))
         istem = cur.fetchone()
-
         if istem is None:
             flash('Malzeme istemi bulunamadı!', 'danger')
             return redirect(url_for('malzeme_istem_listele'))
-
         if istem['durum'] != 'Beklemede':
             flash('Bu istem zaten işlenmiş durumda.', 'warning')
             return redirect(url_for('malzeme_istem_listele'))
-
         if action == 'onayla':
             cur.execute('SELECT stok, ad FROM urunler WHERE id = %s', (istem['urun_id'],))
             urun = cur.fetchone()
             if urun['stok'] < istem['talep_edilen_adet']:
                 flash(f"'{urun['ad']}' için yeterli stok yok. İstek onaylanamadı.", 'danger')
                 return redirect(url_for('malzeme_istem_listele'))
-
             cur.execute('UPDATE urunler SET stok = stok - %s WHERE id = %s', (istem['talep_edilen_adet'], istem['urun_id']))
             cur.execute('UPDATE malzeme_istemleri SET durum = %s, onaylayan_kullanici_id = %s, onay_red_tarihi = %s WHERE id = %s',
-                         ('Onaylandı', session['kullanici_id'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), istem_id))
+                          ('Onaylandı', session['kullanici_id'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), istem_id))
             conn.commit()
             flash(f"Malzeme istemi (ID: {istem_id}) başarıyla onaylandı ve stoktan düşüldü.", 'success')
         elif action == 'reddet':
             cur.execute('UPDATE malzeme_istemleri SET durum = %s, onaylayan_kullanici_id = %s, onay_red_tarihi = %s WHERE id = %s',
-                         ('Reddedildi', session['kullanici_id'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), istem_id))
+                          ('Reddedildi', session['kullanici_id'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), istem_id))
             conn.commit()
             flash(f"Malzeme istemi (ID: {istem_id}) reddedildi.", 'info')
         else:
             flash('Geçersiz işlem!', 'danger')
-
         return redirect(url_for('malzeme_istem_listele'))
     except Exception as e:
         print(f"Malzeme istemi onay/reddet sırasında hata: {e}")
@@ -645,13 +553,6 @@ def malzeme_istem_onayla_reddet(istem_id):
     finally:
         if cur: cur.close()
         if conn: conn.close()
-
-
-# --- Mevcut Rotalar (Yetkilendirme Eklendi) ---
-
-@app.route('/test_resim')
-def test_resim():
-    return app.send_static_file('images/satis.png')
 
 @app.route('/')
 @login_required
@@ -680,44 +581,33 @@ def urun_listesi():
     cur = None
     try:
         conn, cur = get_db_cursor()
-
         cur.execute('SELECT düsuk_stok_esigi FROM ayarlar WHERE id = 1')
         ayarlar = cur.fetchone()
         düsuk_stok_esigi = ayarlar['düsuk_stok_esigi'] if ayarlar and ayarlar['düsuk_stok_esigi'] is not None else 10
-
         kategori_filtre = request.args.get('kategori_filtre')
         search_term = request.args.get('search_term')
-
         query = 'SELECT * FROM urunler'
         params = []
         conditions = []
-
         if kategori_filtre and kategori_filtre != "Tüm Kategoriler":
             conditions.append('kategori = %s')
             params.append(kategori_filtre)
-
         if search_term:
-            conditions.append('ad ILIKE %s') # ILIKE PostgreSQL'de case-insensitive arama için
+            conditions.append('ad ILIKE %s')
             params.append(f'%{search_term}%')
-
         if conditions:
             query += ' WHERE ' + ' AND '.join(conditions)
-
         query += ' ORDER BY ad'
-
         cur.execute(query, params)
         urunler_raw = cur.fetchall()
-
         urunler = []
         for urun_item in urunler_raw:
-            urun_dict = dict(urun_item) # RealDictCursor zaten sözlük döndürür, bu dönüşüm gereksiz ama zarar vermez
+            urun_dict = dict(urun_item)
             if urun_dict['stok'] <= düsuk_stok_esigi:
                 urun_dict['is_düsuk_stok'] = True
             else:
                 urun_dict['is_düsuk_stok'] = False
             urunler.append(urun_dict)
-
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('index.html',
@@ -743,7 +633,6 @@ def yeni_urun():
     cur = None
     try:
         conn, cur = get_db_cursor()
-
         if request.method == 'POST':
             urun_adi = request.form['ad']
             stok_miktari = request.form['stok']
@@ -752,17 +641,14 @@ def yeni_urun():
             birim = request.form['birim']
             kategori = request.form['kategori']
             yeni_kategori = request.form.get('yeni_kategori')
-
             if kategori == 'Yeni Kategori Ekle' and yeni_kategori:
                 kategori = yeni_kategori.strip()
             elif kategori == 'Yeni Kategori Ekle' and not yeni_kategori:
                 flash('Yeni kategori adı boş bırakılamaz!', 'danger')
                 return redirect(url_for('yeni_urun'))
-
             if not urun_adi or not stok_miktari or not alis_fiyat or not satis_fiyat or not birim or not kategori:
                 flash('Tüm gerekli alanlar boş bırakılamaz!', 'danger')
                 return redirect(url_for('yeni_urun'))
-
             try:
                 stok_miktari = int(stok_miktari)
                 alis_fiyat = float(alis_fiyat)
@@ -770,13 +656,11 @@ def yeni_urun():
             except ValueError:
                 flash('Stok, alış/satış fiyatı sayı olmalıdır!', 'danger')
                 return redirect(url_for('yeni_urun'))
-
             cur.execute('INSERT INTO urunler (ad, stok, alis_fiyat, satis_fiyat, birim, kategori) VALUES (%s, %s, %s, %s, %s, %s)',
-                         (urun_adi, stok_miktari, alis_fiyat, satis_fiyat, birim, kategori))
+                          (urun_adi, stok_miktari, alis_fiyat, satis_fiyat, birim, kategori))
             conn.commit()
             flash('Ürün başarıyla eklendi!', 'success')
             return redirect(url_for('urun_listesi'))
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('urun_ekle.html', kategoriler=kategoriler)
@@ -800,11 +684,9 @@ def duzenle(id):
         conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM urunler WHERE id = %s', (id,))
         urun = cur.fetchone()
-
         if urun is None:
             flash('Ürün bulunamadı!', 'danger')
             return redirect(url_for('urun_listesi'))
-
         if request.method == 'POST':
             urun_adi = request.form['ad']
             stok_miktari = request.form['stok']
@@ -813,17 +695,14 @@ def duzenle(id):
             birim = request.form['birim']
             kategori = request.form['kategori']
             yeni_kategori = request.form.get('yeni_kategori')
-
             if kategori == 'Yeni Kategori Ekle' and yeni_kategori:
                 kategori = yeni_kategori.strip()
             elif kategori == 'Yeni Kategori Ekle' and not yeni_kategori:
                 flash('Yeni kategori adı boş bırakılamaz!', 'danger')
                 return redirect(url_for('duzenle', id=id))
-
             if not urun_adi or not stok_miktari or not alis_fiyat or not satis_fiyat or not birim or not kategori:
                 flash('Tüm gerekli alanlar boş bırakılamaz!', 'danger')
                 return redirect(url_for('duzenle', id=id))
-
             try:
                 stok_miktari = int(stok_miktari)
                 alis_fiyat = float(alis_fiyat)
@@ -831,13 +710,11 @@ def duzenle(id):
             except ValueError:
                 flash('Stok, alış/satış fiyatı sayı olmalıdır!', 'danger')
                 return redirect(url_for('duzenle', id=id))
-
             cur.execute('UPDATE urunler SET ad = %s, stok = %s, alis_fiyat = %s, satis_fiyat = %s, birim = %s, kategori = %s WHERE id = %s',
-                         (urun_adi, stok_miktari, alis_fiyat, satis_fiyat, birim, kategori, id))
+                          (urun_adi, stok_miktari, alis_fiyat, satis_fiyat, birim, kategori, id))
             conn.commit()
             flash('Ürün başarıyla güncellendi!', 'success')
             return redirect(url_for('urun_listesi'))
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('urun_duzenle.html', urun=urun, kategoriler=kategoriler)
@@ -883,25 +760,20 @@ def musteri_ekle():
         conn, cur = get_db_cursor()
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
-
         if request.method == 'POST':
             ad_soyad = request.form['ad_soyad']
             telefon = request.form['telefon']
             adres = request.form['adres']
             eposta = request.form['eposta']
-
             if not ad_soyad:
                 flash('Müşteri Adı Soyadı boş bırakılamaz!', 'danger')
                 return redirect(url_for('musteri_ekle'))
-
-            # Bağlantıyı yeniden aç
             conn, cur = get_db_cursor()
             cur.execute('INSERT INTO musteriler (ad_soyad, telefon, adres, eposta, ekleyen_kullanici_id) VALUES (%s, %s, %s, %s, %s)',
-                         (ad_soyad, telefon, adres, eposta, session['kullanici_id']))
+                          (ad_soyad, telefon, adres, eposta, session['kullanici_id']))
             conn.commit()
             flash('Müşteri başarıyla eklendi!', 'success')
             return redirect(url_for('satis_yap'))
-
         return render_template('musteri_ekle.html', kategoriler=kategoriler)
     except Exception as e:
         print(f"Müşteri eklenirken hata: {e}")
@@ -923,27 +795,22 @@ def musteri_duzenle(id):
         conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM musteriler WHERE id = %s', (id,))
         musteri = cur.fetchone()
-
         if musteri is None:
             flash('Müşteri bulunamadı!', 'danger')
             return redirect(url_for('musteri_gecmisi'))
-
         if request.method == 'POST':
             ad_soyad = request.form['ad_soyad']
             telefon = request.form['telefon']
             adres = request.form['adres']
             eposta = request.form['eposta']
-
             if not ad_soyad:
                 flash('Müşteri Adı Soyadı boş bırakılamaz!', 'danger')
                 return redirect(url_for('musteri_duzenle', id=id))
-
             cur.execute('UPDATE musteriler SET ad_soyad = %s, telefon = %s, adres = %s, eposta = %s WHERE id = %s',
-                         (ad_soyad, telefon, adres, eposta, id))
+                          (ad_soyad, telefon, adres, eposta, id))
             conn.commit()
             flash('Müşteri başarıyla güncellendi!', 'success')
             return redirect(url_for('musteri_gecmisi'))
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('musteri_duzenle.html', musteri=musteri, kategoriler=kategoriler)
@@ -967,14 +834,12 @@ def ayarlar():
         conn, cur = get_db_cursor()
         cur.execute('SELECT * FROM ayarlar WHERE id = 1')
         sirket_bilgileri = cur.fetchone()
-
         if request.method == 'POST':
             sirket_adi = request.form['sirket_adi']
             adres = request.form['adres']
             telefon = request.form['telefon']
             eposta = request.form['eposta']
             düsuk_stok_esigi = request.form['düsuk_stok_esigi']
-
             try:
                 düsuk_stok_esigi = int(düsuk_stok_esigi)
                 if düsuk_stok_esigi < 0:
@@ -983,13 +848,11 @@ def ayarlar():
             except ValueError:
                 flash('Düşük stok eşiği sayı olmalıdır!', 'danger')
                 return redirect(url_for('ayarlar'))
-
             cur.execute('UPDATE ayarlar SET sirket_adi = %s, adres = %s, telefon = %s, eposta = %s, düsuk_stok_esigi = %s WHERE id = 1',
-                         (sirket_adi, adres, telefon, eposta, düsuk_stok_esigi))
+                          (sirket_adi, adres, telefon, eposta, düsuk_stok_esigi))
             conn.commit()
             flash('Ayarlar başarıyla kaydedildi!', 'success')
             return redirect(url_for('ayarlar'))
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('ayarlar.html', sirket_bilgileri=sirket_bilgileri, kategoriler=kategoriler)
@@ -1002,7 +865,6 @@ def ayarlar():
     finally:
         if cur: cur.close()
         if conn: conn.close()
-
 
 @app.route('/satis_yap')
 @login_required
@@ -1031,66 +893,48 @@ def satis_yap():
 @login_required
 def satis_onayla():
     data = request.get_json()
-
     if not data or not data.get('musteri_id'):
         return jsonify({'success': False, 'message': 'Müşteri seçilmemiş veya geçersiz veri.'}), 400
-
     cart = data.get('cart', [])
     musteri_id = data['musteri_id']
     iscilik_fiyati = float(data.get('iscilik_fiyati', 0.0))
     ek_notlar = data.get('ek_notlar', '')
-
     if not cart and iscilik_fiyati == 0:
         return jsonify({'success': False, 'message': 'Sepet boş ve işçilik fiyatı sıfır. Lütfen ürün ekleyin veya işçilik fiyatı girin.'}), 400
-
     conn = None
     cur = None
     try:
         conn, cur = get_db_cursor()
-
-        # 1. Stok kontrolü yap ve toplam ürün fiyatını hesapla
         toplam_urun_fiyati = 0
         for item in cart:
             urun_id = item['id']
             satilan_adet = item['adet']
-
             cur.execute('SELECT ad, stok, satis_fiyat FROM urunler WHERE id = %s', (urun_id,))
             urun = cur.fetchone()
             if urun is None:
                 conn.rollback()
                 return jsonify({'success': False, 'message': f"Ürün (ID: {urun_id}) bulunamadı."}), 404
-
             mevcut_stok = urun['stok']
             urun_ad = urun['ad']
             birim_satis_fiyati = urun['satis_fiyat']
-
             if satilan_adet > mevcut_stok:
                 conn.rollback()
                 return jsonify({'success': False, 'message': f"'{urun_ad}' için yeterli stok yok. Mevcut: {mevcut_stok}, İstenen: {satilan_adet}"}), 400
-
             toplam_urun_fiyati += birim_satis_fiyati * satilan_adet
-
-        # 2. Satışı satislar tablosuna kaydet
         satis_tarihi = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cur.execute('INSERT INTO satislar (musteri_id, satis_tarihi, toplam_urun_fiyati, iscilik_fiyati, ek_notlar) VALUES (%s, %s, %s, %s, %s) RETURNING id',
                               (musteri_id, satis_tarihi, toplam_urun_fiyati, iscilik_fiyati, ek_notlar))
-        satis_id = cur.fetchone()['id'] # RETURNING id ile son eklenen ID'yi al
-
-        # 3. Her bir ürün için satis_detaylari tablosuna kayıt ekle ve stoktan düş
+        satis_id = cur.fetchone()['id']
         for item in cart:
             urun_id = item['id']
             satilan_adet = item['adet']
             cur.execute('SELECT satis_fiyat FROM urunler WHERE id = %s', (urun_id,))
             birim_satis_fiyati_detay = cur.fetchone()['satis_fiyat']
-
             cur.execute('INSERT INTO satis_detaylari (satis_id, urun_id, satilan_adet, birim_satis_fiyati) VALUES (%s, %s, %s, %s)',
-                         (satis_id, urun_id, satilan_adet, birim_satis_fiyati_detay))
-
+                              (satis_id, urun_id, satilan_adet, birim_satis_fiyati_detay))
             cur.execute('UPDATE urunler SET stok = stok - %s WHERE id = %s', (satilan_adet, urun_id))
-
         conn.commit()
         return jsonify({'success': True, 'message': 'Satış başarıyla tamamlandı!', 'satis_id': satis_id}), 200
-
     except Exception as e:
         print(f"Satış sırasında bir hata oluştu: {e}")
         traceback.print_exc()
@@ -1107,14 +951,12 @@ def musteri_gecmisi():
     cur = None
     try:
         conn, cur = get_db_cursor()
-        # Müşteri Geçmişi rotası: Admin tüm müşterileri görür, personel sadece kendi eklediği müşterileri görür
         if session.get('rol') == 'admin':
             cur.execute('SELECT id, ad_soyad, telefon, eposta FROM musteriler ORDER BY ad_soyad')
             musteriler = cur.fetchall()
-        else: # Personel sadece kendi eklediği müşterileri görür
+        else:
             cur.execute('SELECT id, ad_soyad, telefon, eposta FROM musteriler WHERE ekleyen_kullanici_id = %s ORDER BY ad_soyad', (session['kullanici_id'],))
             musteriler = cur.fetchall()
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('musteri_gecmisi.html', musteriler=musteriler, kategoriler=kategoriler)
@@ -1134,37 +976,26 @@ def musteri_detay(musteri_id):
     cur = None
     try:
         conn, cur = get_db_cursor()
-
         cur.execute('SELECT * FROM musteriler WHERE id = %s', (musteri_id,))
         musteri = cur.fetchone()
         if musteri is None:
             flash('Müşteri bulunamadı!', 'danger')
             return redirect(url_for('musteri_gecmisi'))
-
-        # Müşteri detayını sadece admin görebilir veya ekleyen kişi görebilir
         if session.get('rol') != 'admin' and musteri['ekleyen_kullanici_id'] != session['kullanici_id']:
             flash('Bu müşterinin detaylarını görüntüleme yetkiniz yok!', 'danger')
             return redirect(url_for('musteri_gecmisi'))
-
         cur.execute('''
             SELECT
-                s.id AS satis_id,
-                s.satis_tarihi,
-                s.toplam_urun_fiyati,
-                s.iscilik_fiyati,
-                s.ek_notlar,
-                sd.satilan_adet,
-                sd.birim_satis_fiyati,
-                u.ad AS urun_ad,
-                u.birim AS urun_birim
+                s.id AS satis_id, s.satis_tarihi, s.toplam_urun_fiyati, s.iscilik_fiyati, s.ek_notlar,
+                sd.satilan_adet, sd.birim_satis_fiyati,
+                u.ad AS urun_ad, u.birim AS urun_birim
             FROM satislar s
             LEFT JOIN satis_detaylari sd ON s.id = sd.satis_id
             LEFT JOIN urunler u ON sd.urun_id = u.id
             WHERE s.musteri_id = %s
             ORDER BY s.satis_tarihi DESC, s.id DESC
         ''', (musteri_id,))
-        satislar_data = cur.fetchall() # RealDictCursor zaten sözlük listesi döndürür
-
+        satislar_data = cur.fetchall()
         gruplanmis_satislar = {}
         for satis_item in satislar_data:
             satis_id = satis_item['satis_id']
@@ -1184,9 +1015,7 @@ def musteri_detay(musteri_id):
                     'birim_satis_fiyati': satis_item['birim_satis_fiyati'],
                     'urun_birim': satis_item['urun_birim']
                 })
-
         satis_listesi = sorted(list(gruplanmis_satislar.values()), key=lambda x: x['satis_tarihi'], reverse=True)
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
         return render_template('musteri_detay.html', musteri=musteri, satislar=satis_listesi, kategoriler=kategoriler)
@@ -1206,43 +1035,32 @@ def fatura(satis_id):
     cur = None
     try:
         conn, cur = get_db_cursor()
-
         cur.execute('SELECT * FROM satislar WHERE id = %s', (satis_id,))
         satis = cur.fetchone()
         if satis is None:
             flash('Fatura bulunamadı!', 'danger')
             return redirect(url_for('anasayfa'))
-
         cur.execute('SELECT * FROM musteriler WHERE id = %s', (satis['musteri_id'],))
         musteri = cur.fetchone()
         if musteri is None:
             flash('Müşteri bulunamadı!', 'danger')
             return redirect(url_for('anasayfa'))
-
         cur.execute('''
-            SELECT
-                sd.satilan_adet,
-                sd.birim_satis_fiyati,
-                u.ad AS urun_ad,
-                u.birim AS urun_birim
+            SELECT sd.satilan_adet, sd.birim_satis_fiyati, u.ad AS urun_ad, u.birim AS urun_birim
             FROM satis_detaylari sd
             JOIN urunler u ON sd.urun_id = u.id
             WHERE sd.satis_id = %s
         ''', (satis_id,))
         urun_kalemleri = cur.fetchall()
-
         cur.execute('SELECT * FROM ayarlar WHERE id = 1')
         sirket_bilgileri = cur.fetchone()
         if sirket_bilgileri is None:
             sirket_bilgileri = {'sirket_adi': 'Şirket Adı Yok', 'adres': '', 'telefon': '', 'eposta': ''}
-
         cur.execute('SELECT DISTINCT kategori FROM urunler ORDER BY kategori')
         kategoriler = cur.fetchall()
-
         toplam_urun_fiyati = satis['toplam_urun_fiyati']
         iscilik_fiyati = satis['iscilik_fiyati']
-        genel_toplam = toplam_urun_fiyati + iscilik_fiyati # Zaten hesaplanmış
-
+        genel_toplam = toplam_urun_fiyati + iscilik_fiyati
         return render_template('fatura.html',
                                satis=satis,
                                musteri=musteri,
@@ -1259,8 +1077,5 @@ def fatura(satis_id):
         if cur: cur.close()
         if conn: conn.close()
 
-# Uygulamayı çalıştır
 if __name__ == '__main__':
-    # Üretim ortamında (Render gibi) Gunicorn veya başka bir WSGI sunucusu kullanılmalıdır.
-    # Bu kısım sadece yerel geliştirme için kullanılır.
     app.run(debug=True)

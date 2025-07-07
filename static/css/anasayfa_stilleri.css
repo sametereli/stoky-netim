@@ -1,4 +1,4 @@
-/* static/css/anasayfa_stilleri.css */
+/* static/css/anasayfa_stil.css dosyasının içeriği */
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -8,27 +8,7 @@ body {
     flex-direction: column;
     min-height: 100vh;
 }
-/* Navbar markası için genel stil */
-.navbar-brand { 
-    display: flex;
-    flex-direction: column; /* Logo ve metni alt alta sırala */
-    align-items: center; /* Yatayda ortala */
-    text-align: center;
-    padding: 5px 15px; /* Navbar markasının genel paddingi */
-}
-.navbar-brand .logo-img { /* Logo görseli için stil */
-    height: 60px; /* Logonun yüksekliğini büyüttük */
-    width: auto;
-    margin-bottom: 5px; /* Logo ile metin arasına boşluk */
-}
-.navbar-brand .app-title-text { /* Uygulama adı metni için stil */
-    font-size: 0.85rem; /* Metin boyutu */
-    font-weight: bold;
-    color: white; /* Navbar rengine uygun */
-    white-space: nowrap; /* Metni tek satırda tut */
-}
 
-/* Ana menü butonları için genel stiller */
 .main-menu-buttons .btn {
     font-size: 1.2rem;
     text-align: center;
@@ -50,13 +30,12 @@ body {
     transform: translateY(-5px); 
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25); 
 }
-.main-menu-buttons .btn.icon-button { /* Görsel butonların ortak özellikleri */
+.main-menu-buttons .btn.icon-button { 
     background-size: 80px 80px; 
     background-repeat: no-repeat;
     background-position: center 30px; 
 }
 
-/* Her Buton İçin Özel Görsel ve Arka Plan Rengi (GÖREKLİ YOLLAR) */
 .btn-urun-listesi { 
     background-image: url('../images/urun_listesi.png'); 
     background-color: #007bff; 
@@ -79,32 +58,22 @@ body {
     background-color: #343a40; 
 }
 
-/* --- Mobil Uyumlu Düzenlemeler --- */
-@media (max-width: 767.98px) { /* Small devices (phones) */
-    .navbar-brand .logo-img {
-        height: 45px; /* Mobil görünümde logoyu biraz küçült (burada 60px'den 45px'e düşüyor) */
-    }
-    .navbar-brand .app-title-text {
-        font-size: 0.75rem; /* Mobil görünümde metni biraz küçült */
-    }
-    /* Ana menü butonları için mobil uyumluluk stilleri */
-    .main-menu-buttons .col-6 { /* En küçük ekranlarda her satırda 2 buton (col-6) */
+@media (max-width: 767.98px) {
+    .main-menu-buttons .col-6 { 
         flex: 0 0 auto;
         width: 50%;
     }
     .main-menu-buttons .btn {
-        min-height: 150px; /* Mobil buton yüksekliğini ayarla */
-        background-size: 60px 60px; /* Mobil buton görsel boyutunu küçült */
-        background-position: center 20px; /* Mobil buton görsel konumunu ayarla */
-        padding-top: 80px; /* Metnin görselin altında kalması için padding */
+        min-height: 150px; 
+        background-size: 60px 60px; 
+        background-position: center 20px; 
+        padding-top: 80px; 
     }
     .main-menu-buttons .btn span {
-        font-size: 1rem; /* Mobil buton metin boyutunu ayarla */
+        font-size: 1rem; 
     }
 }
-/* --- Mobil Uyumlu Düzenlemeler SONU --- */
 
-/* Ortak container ve footer stilleri */
 .container {
     flex-grow: 1; 
     display: flex;

@@ -243,7 +243,10 @@
                             Malzeme İstemi
                         </a>
                         <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="navbarDropdownMalzemeIstemi">
+                            {# SADECE PERSONEL GÖREBİLİR #}
+                            {% if session.get('rol') == 'personel' %}
                             <li><a class="dropdown-item" href="{{ url_for('malzeme_istem_olustur') }}">İstem Oluştur</a></li>
+                            {% endif %}
                             <li><a class="dropdown-item" href="{{ url_for('malzeme_istem_listele') }}">İstemleri Listele</a></li>
                         </ul>
                     </li>
